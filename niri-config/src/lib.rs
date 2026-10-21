@@ -1507,6 +1507,8 @@ mod tests {
                     b: 0.25,
                     a: 1.0,
                 },
+                workspace_switch_slant: 0.,
+                panel_width: 0.,
             },
             prefer_no_csd: true,
             cursor: Cursor {

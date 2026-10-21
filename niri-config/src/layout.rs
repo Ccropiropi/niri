@@ -24,6 +24,8 @@ pub struct Layout {
     pub gaps: f64,
     pub struts: Struts,
     pub background_color: Color,
+    pub workspace_switch_slant: f64,
+    pub panel_width: f64,
 }
 
 impl Default for Layout {
@@ -52,6 +54,8 @@ impl Default for Layout {
                 PresetSize::Proportion(2. / 3.),
             ],
             background_color: DEFAULT_BACKGROUND_COLOR,
+            workspace_switch_slant: 0.,
+            panel_width: 0.,
         }
     }
 }
@@ -68,6 +72,8 @@ impl MergeWith<LayoutPart> for Layout {
             always_center_single_column,
             empty_workspace_above_first,
             gaps,
+            workspace_switch_slant,
+            panel_width,
         );
 
         merge_clone!(
@@ -126,6 +132,10 @@ pub struct LayoutPart {
     pub struts: Option<Struts>,
     #[knuffel(child)]
     pub background_color: Option<Color>,
+    #[knuffel(child, unwrap(argument))]
+    pub workspace_switch_slant: Option<FloatOrInt<0, 100>>,
+    #[knuffel(child, unwrap(argument))]
+    pub panel_width: Option<FloatOrInt<0, 100>>,
 }
 
 #[derive(knuffel::Decode, Debug, Clone, Copy, PartialEq)]

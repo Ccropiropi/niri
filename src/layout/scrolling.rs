@@ -7,8 +7,9 @@ use niri_config::utils::MergeWith as _;
 use niri_config::{CenterFocusedColumn, PresetSize, Struts};
 use niri_ipc::{ColumnDisplay, SizeChange, WindowLayout};
 use ordered_float::NotNan;
+use smithay::backend::renderer::element::utils::CropRenderElement;
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::utils::{Logical, Point, Rectangle, Scale, Serial, Size};
+use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Serial, Size};
 
 use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
 use super::monitor::InsertPosition;
@@ -98,8 +99,10 @@ pub struct ScrollingSpace<W: LayoutElement> {
 niri_render_elements! {
     ScrollingSpaceRenderElement<R> => {
         Tile = TileRenderElement<R>,
+        CroppedTile = CropRenderElement<TileRenderElement<R>>,
         ClosingWindow = ClosingWindowRenderElement,
         TabIndicator = TabIndicatorRenderElement,
+        CroppedTabIndicator = CropRenderElement<TabIndicatorRenderElement>,
     }
 }
 
@@ -320,7 +323,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         clock: Clock,
         options: Rc<Options>,
     ) -> Self {
-        let working_area = compute_working_area(parent_area, scale, options.layout.struts);
+        let working_area = compute_working_area(parent_area, scale, options.layout.struts, options.layout.panel_width);
 
         Self {
             columns: Vec::new(),
@@ -347,7 +350,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         scale: f64,
         options: Rc<Options>,
     ) {
-        let working_area = compute_working_area(parent_area, scale, options.layout.struts);
+        let working_area = compute_working_area(parent_area, scale, options.layout.struts, options.layout.panel_width);
 
         for (column, data) in zip(&mut self.columns, &mut self.data) {
             column.update_config(view_size, working_area, parent_area, scale, options.clone());
@@ -2983,6 +2986,17 @@ impl<W: LayoutElement> ScrollingSpace<W> {
 
         let mut first = true;
 
+        // Crop normal columns to working area so scrolled columns do not overlap left panel.
+        let crop_bounds_normal: Option<Rectangle<i32, Physical>> = if self.working_area.loc.x > 0. {
+            let left_px = (self.working_area.loc.x * self.scale).round() as i32;
+            Some(Rectangle::new(
+                Point::from((left_px, -i32::MAX / 2)),
+                Size::from((i32::MAX - left_px, i32::MAX)),
+            ))
+        } else {
+            None
+        };
+
         // This matches self.tiles_with_render_positions().
         for (col, col_pos) in self.columns_with_render_positions() {
             // Skip columns belonging to a different render layer.
@@ -2991,11 +3005,25 @@ impl<W: LayoutElement> ScrollingSpace<W> {
                 continue;
             }
 
+            let crop_bounds = if col.sizing_mode().is_normal() {
+                crop_bounds_normal
+            } else {
+                None
+            };
+
             // Draw the tab indicator on top.
             {
                 let pos = col_pos.to_physical_precise_round(scale).to_logical(scale);
                 col.tab_indicator
-                    .render(ctx.renderer, pos, &mut |elem| push(elem.into()));
+                    .render(ctx.renderer, pos, &mut |elem| {
+                        if let Some(crop) = crop_bounds {
+                            if let Some(cropped) = CropRenderElement::from_element(elem, scale, crop) {
+                                push(ScrollingSpaceRenderElement::CroppedTabIndicator(cropped));
+                            }
+                        } else {
+                            push(elem.into());
+                        }
+                    });
             }
 
             for (tile, tile_off, visible) in col.tiles_in_render_order() {
@@ -3021,7 +3049,13 @@ impl<W: LayoutElement> ScrollingSpace<W> {
 
                 let xray_pos = xray_pos.offset(tile_pos);
                 tile.render(ctx.r(), tile_pos, xray_pos, focus_ring, &mut |elem| {
-                    push(elem.into())
+                    if let Some(crop) = crop_bounds {
+                        if let Some(cropped) = CropRenderElement::from_element(elem, scale, crop) {
+                            push(ScrollingSpaceRenderElement::CroppedTile(cropped));
+                        }
+                    } else {
+                        push(elem.into());
+                    }
                 });
             }
         }
@@ -3056,6 +3090,11 @@ impl<W: LayoutElement> ScrollingSpace<W> {
                 let tile_pos = col_pos + tile_off + tile.render_offset();
                 // Round to physical pixels.
                 let tile_pos = tile_pos.to_physical_precise_round(scale).to_logical(scale);
+
+                // Normal columns cannot be hit in the reserved panel zone.
+                if col.sizing_mode().is_normal() && pos.x < self.working_area.loc.x {
+                    continue;
+                }
 
                 if let Some(rv) = HitType::hit_tile(tile, tile_pos, pos) {
                     return Some(rv);
@@ -3809,7 +3848,12 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         assert_eq!(self.columns.len(), self.data.len());
         assert_eq!(
             self.working_area,
-            compute_working_area(self.parent_area, self.scale, self.options.layout.struts)
+            compute_working_area(
+                self.parent_area,
+                self.scale,
+                self.options.layout.struts,
+                self.options.layout.panel_width,
+            )
         );
 
         if !self.columns.is_empty() {
@@ -5638,12 +5682,16 @@ fn compute_working_area(
     parent_area: Rectangle<f64, Logical>,
     scale: f64,
     struts: Struts,
+    panel_width_pct: f64,
 ) -> Rectangle<f64, Logical> {
     let mut working_area = parent_area;
 
-    // Add struts.
-    working_area.size.w = f64::max(0., working_area.size.w - struts.left.0 - struts.right.0);
-    working_area.loc.x += struts.left.0;
+    // Resolve panel width percentage to pixels.
+    let panel_px = parent_area.size.w * panel_width_pct / 100.;
+
+    // Add struts and panel width.
+    working_area.size.w = f64::max(0., working_area.size.w - struts.left.0 - panel_px - struts.right.0);
+    working_area.loc.x += struts.left.0 + panel_px;
 
     working_area.size.h = f64::max(0., working_area.size.h - struts.top.0 - struts.bottom.0);
     working_area.loc.y += struts.top.0;
@@ -5728,7 +5776,7 @@ mod tests {
         };
 
         let parent_area = Rectangle::from_size(Size::from((1280., 720.)));
-        let area = compute_working_area(parent_area, 1., struts);
+        let area = compute_working_area(parent_area, 1., struts, 0.);
 
         assert_eq!(round_logical_in_physical(1., area.loc.x), area.loc.x);
         assert_eq!(round_logical_in_physical(1., area.loc.y), area.loc.y);
@@ -5744,6 +5792,16 @@ mod tests {
         };
 
         let parent_area = Rectangle::from_size(Size::from((1280., 720.)));
-        compute_working_area(parent_area, 1., struts);
+        compute_working_area(parent_area, 1., struts, 0.);
+    }
+
+    #[test]
+    fn panel_width_reserves_left_strut_percent() {
+        let struts = Struts::default();
+        let parent_area = Rectangle::from_size(Size::from((1000., 500.)));
+        let area = compute_working_area(parent_area, 1., struts, 46.);
+
+        assert_eq!(area.loc.x, 460.);
+        assert_eq!(area.size.w, 540.);
     }
 }

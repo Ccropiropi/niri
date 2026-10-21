@@ -8,7 +8,7 @@ use smithay::backend::renderer::element::utils::{
     CropRenderElement, Relocate, RelocateRenderElement, RescaleRenderElement,
 };
 use smithay::output::Output;
-use smithay::utils::{Logical, Point, Rectangle, Size};
+use smithay::utils::{Logical, Physical, Point, Rectangle, Size};
 
 use super::insert_hint_element::{InsertHintElement, InsertHintRenderElement};
 use super::scrolling::{Column, ColumnWidth};
@@ -1488,10 +1488,16 @@ impl<W: LayoutElement> Monitor<W> {
         let first_ws_y = -self.workspace_render_idx() * ws_height_with_gap;
         let first_ws_y = round_logical_in_physical(scale, first_ws_y);
 
+        let slant_pct = self.options.layout.workspace_switch_slant / 100.;
+        let slant_per_ws = self.view_size.w * slant_pct;
+        let first_ws_x = self.workspace_render_idx() * slant_per_ws;
+        let first_ws_x = round_logical_in_physical(scale, first_ws_x);
+
         // Return position for one-past-last workspace too.
         (0..=self.workspaces.len()).map(move |idx| {
+            let x = first_ws_x - idx as f64 * slant_per_ws;
             let y = first_ws_y + idx as f64 * ws_height_with_gap;
-            let loc = Point::from((0., y)) + static_offset;
+            let loc = Point::from((x, y)) + static_offset;
 
             // Even though all components that go into loc are rounded to physical pixels, the
             // floating point addition may lose precision. This can result for example in the
@@ -1711,32 +1717,31 @@ impl<W: LayoutElement> Monitor<W> {
         // - normal floating windows
         // - scrolling windows moving between workspaces
         // - normal scrolling windows
+        let panel_px = self.view_size.w * self.options.layout.panel_width / 100.;
+        let panel_px_phys = (panel_px * scale).round() as i32;
+
         for pass in 0..4 {
             // Don't cull when drawing windows moving between workspaces so that windows moving to
             // workspaces off-screen will still render.
             let cull = matches!(pass, 1 | 3);
 
-            // Crop the elements to prevent them overflowing, currently visible during a workspace
-            // switch.
-            //
-            // HACK: crop to infinite bounds at least horizontally where we
-            // know there's no workspace joining or monitor bounds, otherwise
-            // it will cut pixel shaders and mess up the coordinate space.
-            // There's also a damage tracking bug which causes glitched
-            // rendering for maximized GTK windows.
-            //
-            // FIXME: use proper bounds after fixing the Crop element.
-            //
-            // Also, check cull here to avoid cropping windows moving between workspaces.
-            //
-            // FIXME: for cull=true, it might be better visually to crop to a workspace-high region
-            // anchored to the window/column as it moves between workspaces, to prevent overflowing
-            // windows from appearing and disappearing.
-            let crop_bounds =
-                if cull && (self.workspace_switch.is_some() || self.overview_progress.is_some()) {
+            for (ws, geo) in self.workspaces_with_render_geo_cull(cull) {
+                let geo_phys: Rectangle<i32, Physical> = geo.to_physical_precise_round(scale);
+                let is_switching = self.workspace_switch.is_some() || self.overview_progress.is_some();
+                let crop_bounds = if is_switching {
+                    let min_x = if self.options.layout.panel_width > 0. {
+                        panel_px_phys - geo_phys.loc.x
+                    } else {
+                        -i32::MAX / 2
+                    };
+                    let (min_y, h) = if cull {
+                        (0, height)
+                    } else {
+                        (-i32::MAX / 2, i32::MAX)
+                    };
                     Rectangle::new(
-                        Point::from((-i32::MAX / 2, 0)),
-                        Size::from((i32::MAX, height)),
+                        Point::from((min_x, min_y)),
+                        Size::from((i32::MAX / 2, h)),
                     )
                 } else {
                     Rectangle::new(
@@ -1745,7 +1750,6 @@ impl<W: LayoutElement> Monitor<W> {
                     )
                 };
 
-            for (ws, geo) in self.workspaces_with_render_geo_cull(cull) {
                 // Macro instead of closure because ws and insert hint have different elem types.
                 macro_rules! push {
                     () => {{

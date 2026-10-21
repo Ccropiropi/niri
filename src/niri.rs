@@ -4669,10 +4669,19 @@ impl Niri {
             mon.render_insert_hint_between_workspaces(ctx.renderer, &mut |elem| push(elem.into()));
 
             // Macro instead of closure to avoid borrowing push().
+            let panel_width = self.config.borrow().layout.panel_width;
+            let output_width = mon.view_size().w;
             macro_rules! process {
                 ($geo:expr) => {{
                     &mut |elem| {
-                        if let Some(elem) = scale_relocate_crop(elem, output_scale, zoom, $geo) {
+                        if let Some(elem) = scale_relocate_crop(
+                            elem,
+                            output_scale,
+                            zoom,
+                            $geo,
+                            panel_width,
+                            output_width,
+                        ) {
                             push(elem.into());
                         }
                     }
@@ -7227,11 +7236,23 @@ fn scale_relocate_crop<E: Element>(
     output_scale: Scale<f64>,
     zoom: f64,
     ws_geo: Rectangle<f64, Logical>,
+    panel_width_pct: f64,
+    output_width: f64,
 ) -> Option<CropRenderElement<RelocateRenderElement<RescaleRenderElement<E>>>> {
-    let ws_geo = ws_geo.to_physical_precise_round(output_scale);
+    let ws_geo: Rectangle<i32, Physical> = ws_geo.to_physical_precise_round(output_scale);
+    let crop_geo = if panel_width_pct > 0. {
+        let panel_px = output_width * panel_width_pct / 100.;
+        let panel_px_phys = (panel_px * output_scale.x).round() as i32;
+        let right_edge = ws_geo.loc.x + ws_geo.size.w;
+        let crop_x = ws_geo.loc.x.max(panel_px_phys);
+        let crop_w = (right_edge - crop_x).max(0);
+        Rectangle::new(Point::from((crop_x, ws_geo.loc.y)), Size::from((crop_w, ws_geo.size.h)))
+    } else {
+        ws_geo
+    };
     let elem = RescaleRenderElement::from_element(elem, Point::from((0, 0)), zoom);
     let elem = RelocateRenderElement::from_element(elem, ws_geo.loc, Relocate::Relative);
-    CropRenderElement::from_element(elem, output_scale, ws_geo)
+    CropRenderElement::from_element(elem, output_scale, crop_geo)
 }
 
 niri_render_elements! {
