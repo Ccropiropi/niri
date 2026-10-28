@@ -11,13 +11,13 @@ use smithay::output::Output;
 use smithay::utils::{Logical, Physical, Point, Rectangle, Size};
 
 use super::insert_hint_element::{InsertHintElement, InsertHintRenderElement};
-use super::scrolling::{Column, ColumnWidth};
+use super::scrolling::{Column, ColumnWidth, ScrollingSpace};
 use super::tile::Tile;
 use super::workspace::{
     compute_working_area, OutputId, Workspace, WorkspaceAddWindowTarget, WorkspaceId,
     WorkspaceRenderElement,
 };
-use super::{compute_overview_zoom, ActivateWindow, HitType, LayoutElement, Options};
+use super::{compute_overview_zoom, ActivateWindow, HitType, LayoutElement, Options, Region};
 use crate::animation::{Animation, Clock};
 use crate::input::swipe_tracker::SwipeTracker;
 use crate::layout::RenderLayer;
@@ -89,6 +89,11 @@ pub struct Monitor<W: LayoutElement> {
     pub(super) options: Rc<Options>,
     /// Layout config overrides for this monitor.
     layout_config: Option<niri_config::LayoutPart>,
+    /// Monitor-scoped static left region layout space.
+    /// None when split mode is disabled.
+    pub(super) left_region: Option<ScrollingSpace<W>>,
+    /// Currently focused region for input and keyboard dispatch.
+    pub focused_region: Region,
 }
 
 #[derive(Debug)]
@@ -347,6 +352,8 @@ impl<W: LayoutElement> Monitor<W> {
             base_options,
             options,
             layout_config,
+            left_region: None,
+            focused_region: Region::Right,
         }
     }
 
@@ -394,6 +401,18 @@ impl<W: LayoutElement> Monitor<W> {
 
     pub fn active_workspace(&mut self) -> &mut Workspace<W> {
         &mut self.workspaces[self.active_workspace_idx]
+    }
+
+    pub fn active_workspace_mut(&mut self) -> &mut Workspace<W> {
+        &mut self.workspaces[self.active_workspace_idx]
+    }
+
+    pub fn focused_region(&self) -> Region {
+        self.focused_region
+    }
+
+    pub fn set_focused_region(&mut self, region: Region) {
+        self.focused_region = region;
     }
 
     pub fn idx_of_ws(&self, id: WorkspaceId) -> Option<usize> {
@@ -1027,7 +1046,54 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn active_window(&self) -> Option<&W> {
-        self.active_workspace_ref().active_window()
+        if !self.is_split_mode_active() {
+            return self.active_workspace_ref().active_window();
+        }
+
+        match self.focused_region {
+            Region::Left => self.left_region.as_ref().and_then(|r| r.active_window()),
+            Region::Right => self.active_workspace_ref().active_window(),
+        }
+    }
+
+    pub fn active_window_mut(&mut self) -> Option<&mut W> {
+        if !self.is_split_mode_active() {
+            return self.active_workspace().active_window_mut();
+        }
+
+        match self.focused_region {
+            Region::Left => self.left_region.as_mut().and_then(|r| r.active_window_mut()),
+            Region::Right => self.active_workspace().active_window_mut(),
+        }
+    }
+
+    /// Checks if split mode (regions) is currently active.
+    pub fn is_split_mode_active(&self) -> bool {
+        self.options.regions.enabled
+    }
+
+    /// Determines which region a point belongs to based on the separator line.
+    /// The separator is defined by: separator_x(y) = top_x - slant * (y / H)
+    pub fn region_at(&self, pos: Point<f64, Logical>) -> Region {
+        if !self.options.regions.enabled {
+            return Region::Right;
+        }
+
+        let h = self.view_size.h;
+        let w = self.view_size.w;
+        if h <= 0.0 || w <= 0.0 {
+            return Region::Right;
+        }
+
+        let top_x = w * (self.options.regions.width_percent / 100.0);
+        let slant = w * (self.options.regions.slant_percent / 100.0);
+
+        let separator_x = top_x - slant * (pos.y / h);
+        if pos.x < separator_x {
+            Region::Left
+        } else {
+            Region::Right
+        }
     }
 
     pub fn advance_animations(&mut self) {
@@ -1574,18 +1640,50 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn window_under(&self, pos_within_output: Point<f64, Logical>) -> Option<(&W, HitType)> {
-        let (ws, geo) = self.workspace_under(pos_within_output)?;
+        if !self.is_split_mode_active() {
+            let (ws, geo) = self.workspace_under(pos_within_output)?;
 
-        if self.overview_progress.is_some() {
-            let zoom = self.overview_zoom();
-            let pos_within_workspace = (pos_within_output - geo.loc).downscale(zoom);
-            let (win, hit) = ws.window_under(pos_within_workspace)?;
-            // During the overview animation, we cannot do input hits because we cannot really
-            // represent scaled windows properly.
-            Some((win, hit.to_activate()))
+            if self.overview_progress.is_some() {
+                let zoom = self.overview_zoom();
+                let pos_within_workspace = (pos_within_output - geo.loc).downscale(zoom);
+                let (win, hit) = ws.window_under(pos_within_workspace)?;
+                // During the overview animation, we cannot do input hits because we cannot really
+                // represent scaled windows properly.
+                Some((win, hit.to_activate()))
+            } else {
+                let (win, hit) = ws.window_under(pos_within_output - geo.loc)?;
+                Some((win, hit.offset_win_pos(geo.loc)))
+            }
         } else {
-            let (win, hit) = ws.window_under(pos_within_output - geo.loc)?;
-            Some((win, hit.offset_win_pos(geo.loc)))
+            // In split mode, check which region the point belongs to.
+            let region = self.region_at(pos_within_output);
+            match region {
+                Region::Left => {
+                    if let Some(left_region) = &self.left_region {
+                        if self.overview_progress.is_some() {
+                            // Overview not supported for left region yet
+                            return None;
+                        }
+                        let (win, hit) = left_region.window_under(pos_within_output)?;
+                        Some((win, hit))
+                    } else {
+                        None
+                    }
+                }
+                Region::Right => {
+                    let (ws, geo) = self.workspace_under(pos_within_output)?;
+
+                    if self.overview_progress.is_some() {
+                        let zoom = self.overview_zoom();
+                        let pos_within_workspace = (pos_within_output - geo.loc).downscale(zoom);
+                        let (win, hit) = ws.window_under(pos_within_workspace)?;
+                        Some((win, hit.to_activate()))
+                    } else {
+                        let (win, hit) = ws.window_under(pos_within_output - geo.loc)?;
+                        Some((win, hit.offset_win_pos(geo.loc)))
+                    }
+                }
+            }
         }
     }
 
@@ -1594,8 +1692,23 @@ impl<W: LayoutElement> Monitor<W> {
             return None;
         }
 
-        let (ws, geo) = self.workspace_under(pos_within_output)?;
-        ws.resize_edges_under(pos_within_output - geo.loc)
+        if !self.is_split_mode_active() {
+            let (ws, geo) = self.workspace_under(pos_within_output)?;
+            ws.resize_edges_under(pos_within_output - geo.loc)
+        } else {
+            let region = self.region_at(pos_within_output);
+            match region {
+                Region::Left => {
+                    self.left_region
+                        .as_ref()
+                        .and_then(|r| r.resize_edges_under(pos_within_output))
+                }
+                Region::Right => {
+                    let (ws, geo) = self.workspace_under(pos_within_output)?;
+                    ws.resize_edges_under(pos_within_output - geo.loc)
+                }
+            }
+        }
     }
 
     pub(super) fn insert_position(

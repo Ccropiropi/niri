@@ -1,4 +1,31 @@
-# Patch Notes - Milestone R1: Config Schema & Inactive State (splitdesk)
+## [2026-10-28] - Milestone R2: Focus & Input Routing (splitdesk)
+
+### Added
+- **`Region` Enum (`src/layout/mod.rs`):**
+  - Added `Region::Left` and `Region::Right` with `#[default] Right`.
+- **Monitor Region State & Mathematical Truth (`src/layout/monitor.rs`):**
+  - Added `focused_region: Region` field to `Monitor<W>` (defaulting to `Region::Right`).
+  - Added `left_region: Option<ScrollingSpace<W>>` field to `Monitor<W>` for monitor-scoped static tiling.
+  - Implemented `Monitor::region_at(pos: Point<f64, Logical>) -> Region` calculating:
+    $$\text{separator\_x}(y) = \text{top\_x} - \text{slant} \cdot \left(\frac{y}{H}\right)$$
+    using `options.regions.width_percent` and `options.regions.slant_percent`.
+  - Implemented focus gating in `active_window()` and `active_window_mut()` respecting `focused_region`.
+  - Updated hit-testing in `window_under()` and `resize_edges_under()` to route through `region_at()`.
+- **Action & Pointer Dispatch (`src/input/mod.rs`):**
+  - Functional dispatch for `FocusRegionLeft`, `FocusRegionRight`, and `ToggleRegionFocus` switching `focused_region` on the active monitor and updating keyboard focus.
+  - Click-to-focus region activation on pointer button press when clicking within a region boundary.
+- **Unit Test Suite (`src/layout/tests/regions.rs`):**
+  - 6 exhaustive unit tests:
+    - `region_at_disabled_always_right`
+    - `region_at_vertical_split`
+    - `region_at_slanted_split`
+    - `region_at_negative_slant`
+    - `focus_gating_and_switching`
+    - `focus_gating_when_disabled_stock_behavior`
+
+---
+
+## [2026-10-28] - Milestone R1: Config Schema & Inactive State (splitdesk)
 
 ## Summary
 Implementation of PRD Milestone R1 for the splitdesk feature. Adds the `regions` configuration block and corresponding action variants, with the regions feature disabled by default to ensure identical behavior to stock niri when not enabled.

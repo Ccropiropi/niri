@@ -51,7 +51,7 @@ use self::spatial_movement_grab::SpatialMovementGrab;
 #[cfg(feature = "dbus")]
 use crate::dbus::freedesktop_a11y::KbMonBlock;
 use crate::layout::scrolling::ScrollDirection;
-use crate::layout::{ActivateWindow, LayoutElement as _};
+use crate::layout::{ActivateWindow, LayoutElement as _, Region};
 use crate::niri::{CastTarget, PointerVisibility, State};
 use crate::ui::mru::{WindowMru, WindowMruUi};
 use crate::ui::screenshot_ui::ScreenshotUi;
@@ -2357,13 +2357,50 @@ impl State {
                     self.niri.queue_redraw_all();
                 }
             }
-            Action::ToggleSplitMode
-            | Action::FocusRegionLeft
-            | Action::FocusRegionRight
-            | Action::ToggleRegionFocus
-            | Action::MoveWindowToRegionLeft
-            | Action::MoveWindowToRegionRight => {
-                // Inactive in Milestone R1; functional dispatch implemented in Milestone R2+
+            Action::ToggleSplitMode => {
+                // Inactive in Milestone R2; functional dispatch implemented in Milestone R4
+            }
+            Action::FocusRegionLeft => {
+                if let Some(monitor) = self.niri.layout.active_monitor_mut() {
+                    if monitor.is_split_mode_active() {
+                        monitor.set_focused_region(Region::Left);
+                        self.update_keyboard_focus();
+                        self.maybe_warp_cursor_to_focus();
+                        self.niri.layer_shell_on_demand_focus = None;
+                        self.niri.queue_redraw_all();
+                    }
+                }
+            }
+            Action::FocusRegionRight => {
+                if let Some(monitor) = self.niri.layout.active_monitor_mut() {
+                    if monitor.is_split_mode_active() {
+                        monitor.set_focused_region(Region::Right);
+                        self.update_keyboard_focus();
+                        self.maybe_warp_cursor_to_focus();
+                        self.niri.layer_shell_on_demand_focus = None;
+                        self.niri.queue_redraw_all();
+                    }
+                }
+            }
+            Action::ToggleRegionFocus => {
+                if let Some(monitor) = self.niri.layout.active_monitor_mut() {
+                    if monitor.is_split_mode_active() {
+                        monitor.set_focused_region(match monitor.focused_region() {
+                            Region::Left => Region::Right,
+                            Region::Right => Region::Left,
+                        });
+                        self.update_keyboard_focus();
+                        self.maybe_warp_cursor_to_focus();
+                        self.niri.layer_shell_on_demand_focus = None;
+                        self.niri.queue_redraw_all();
+                    }
+                }
+            }
+            Action::MoveWindowToRegionLeft => {
+                // Inactive in Milestone R2; functional dispatch implemented in Milestone R3
+            }
+            Action::MoveWindowToRegionRight => {
+                // Inactive in Milestone R2; functional dispatch implemented in Milestone R3
             }
             Action::ToggleWindowUrgent(id) => {
                 let window = self
@@ -2913,6 +2950,23 @@ impl State {
             // We received an event for the regular pointer, so show it now.
             self.niri.pointer_visibility = PointerVisibility::Visible;
             self.niri.tablet_cursor_location = None;
+
+            // In split mode, clicking in a region activates focus for that region.
+            let output_under = self
+                .niri
+                .output_under(pointer.current_location())
+                .map(|(o, p)| (o.clone(), p));
+            if let Some((output, pos_within_output)) = output_under {
+                if let Some(monitor) = self.niri.layout.monitor_for_output_mut(&output) {
+                    if monitor.is_split_mode_active() {
+                        let clicked_region = monitor.region_at(pos_within_output);
+                        if clicked_region != monitor.focused_region {
+                            monitor.focused_region = clicked_region;
+                            self.update_keyboard_focus();
+                        }
+                    }
+                }
+            }
 
             let is_overview_open = self.niri.layout.is_overview_open();
 

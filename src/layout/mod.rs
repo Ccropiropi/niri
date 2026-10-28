@@ -96,6 +96,16 @@ pub const RESIZE_ANIMATION_THRESHOLD: f64 = 10.;
 /// Pointer needs to move this far to pull a window from the layout.
 const INTERACTIVE_MOVE_START_THRESHOLD: f64 = 256. * 256.;
 
+/// A region of a monitor in split mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Region {
+    /// Left (static) region.
+    Left,
+    /// Right (workspace) region.
+    #[default]
+    Right,
+}
+
 /// Opacity of interactively moved tiles targeting the scrolling layout.
 const INTERACTIVE_MOVE_ALPHA: f64 = 0.75;
 
@@ -1776,7 +1786,7 @@ impl<W: LayoutElement> Layout<W> {
         }
     }
 
-    fn active_monitor(&mut self) -> Option<&mut Monitor<W>> {
+    pub fn active_monitor(&mut self) -> Option<&mut Monitor<W>> {
         let MonitorSet::Normal {
             monitors,
             active_monitor_idx,
@@ -1787,6 +1797,10 @@ impl<W: LayoutElement> Layout<W> {
         };
 
         Some(&mut monitors[*active_monitor_idx])
+    }
+
+    pub fn active_monitor_mut(&mut self) -> Option<&mut Monitor<W>> {
+        self.active_monitor()
     }
 
     pub fn active_monitor_ref(&self) -> Option<&Monitor<W>> {
