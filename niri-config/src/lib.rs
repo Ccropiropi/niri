@@ -42,6 +42,7 @@ pub mod output;
 pub mod recent_windows;
 pub mod utils;
 pub mod window_rule;
+pub mod regions;
 pub mod workspace;
 
 pub use crate::animations::{Animation, Animations};
@@ -55,8 +56,9 @@ pub use crate::layer_rule::LayerRule;
 pub use crate::layout::*;
 pub use crate::misc::*;
 pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
-use crate::recent_windows::RecentWindowsPart;
+pub use crate::recent_windows::RecentWindowsPart;
 pub use crate::recent_windows::{MruDirection, MruFilter, MruPreviews, MruScope, RecentWindows};
+pub use crate::regions::{Regions, RegionsPart};
 pub use crate::utils::FloatOrInt;
 use crate::utils::{expand_home_path, Flag, MergeWith as _};
 pub use crate::window_rule::{
@@ -83,6 +85,7 @@ pub struct Config {
     pub blur: Blur,
     pub gestures: Gestures,
     pub overview: Overview,
+    pub regions: Regions,
     pub environment: Environment,
     pub xwayland_satellite: XwaylandSatellite,
     pub window_rules: Vec<WindowRule>,
@@ -204,6 +207,7 @@ where
                 "blur" => m_merge!(blur),
                 "gestures" => m_merge!(gestures),
                 "overview" => m_merge!(overview),
+                "regions" => m_merge!(regions),
                 "xwayland-satellite" => m_merge!(xwayland_satellite),
                 "switch-events" => m_merge!(switch_events),
                 "debug" => m_merge!(debug),
@@ -1727,6 +1731,12 @@ mod tests {
                         a: 0.3137255,
                     },
                 },
+            },
+            regions: Regions {
+                enabled: false,
+                width_percent: 46.0,
+                slant_percent: 12.0,
+                gap: 16.0,
             },
             environment: Environment(
                 [

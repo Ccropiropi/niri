@@ -39,7 +39,7 @@ use std::time::Duration;
 use monitor::{InsertHint, InsertPosition, InsertWorkspace, MonitorAddWindowTarget};
 use niri_config::utils::MergeWith as _;
 use niri_config::{
-    Config, CornerRadius, LayoutPart, PresetSize, Workspace as WorkspaceConfig, WorkspaceReference,
+    Config, CornerRadius, LayoutPart, PresetSize, Regions, Workspace as WorkspaceConfig, WorkspaceReference,
 };
 use niri_ipc::{ColumnDisplay, PositionChange, SizeChange, WindowLayout};
 use scrolling::{Column, ColumnWidth};
@@ -399,6 +399,7 @@ pub struct Options {
     pub animations: niri_config::Animations,
     pub gestures: niri_config::Gestures,
     pub overview: niri_config::Overview,
+    pub regions: Regions,
     pub blur: niri_config::Blur,
     // Debug flags.
     pub disable_resize_throttling: bool,
@@ -668,6 +669,7 @@ impl Options {
             animations: config.animations.clone(),
             gestures: config.gestures,
             overview: config.overview,
+            regions: config.regions,
             blur: config.blur,
             disable_resize_throttling: config.debug.disable_resize_throttling,
             disable_transactions: config.debug.disable_transactions,

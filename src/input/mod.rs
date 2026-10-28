@@ -2357,6 +2357,14 @@ impl State {
                     self.niri.queue_redraw_all();
                 }
             }
+            Action::ToggleSplitMode
+            | Action::FocusRegionLeft
+            | Action::FocusRegionRight
+            | Action::ToggleRegionFocus
+            | Action::MoveWindowToRegionLeft
+            | Action::MoveWindowToRegionRight => {
+                // Inactive in Milestone R1; functional dispatch implemented in Milestone R2+
+            }
             Action::ToggleWindowUrgent(id) => {
                 let window = self
                     .niri

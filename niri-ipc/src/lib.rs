@@ -916,6 +916,18 @@ pub enum Action {
     OpenOverview {},
     /// Close the Overview.
     CloseOverview {},
+    /// Toggle split mode (regions on/off).
+    ToggleSplitMode {},
+    /// Focus the left region.
+    FocusRegionLeft {},
+    /// Focus the right region.
+    FocusRegionRight {},
+    /// Toggle focus between left and right regions.
+    ToggleRegionFocus {},
+    /// Move the focused window to the left region.
+    MoveWindowToRegionLeft {},
+    /// Move the focused window to the right region.
+    MoveWindowToRegionRight {},
     /// Toggle urgent status of a window.
     ToggleWindowUrgent {
         /// Id of the window to toggle urgent.
