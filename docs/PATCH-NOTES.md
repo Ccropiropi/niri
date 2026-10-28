@@ -1,3 +1,30 @@
+## [2026-10-28] - Milestone R3: Static Left Region & Layout Bounding (splitdesk)
+
+### Added
+- **Static Left Region Initialization (`src/layout/monitor.rs`):**
+  - Initialized `Monitor.left_region: Option<ScrollingSpace<W>>` when split mode is active (`is_split_mode_active()`).
+  - Implemented `Monitor::create_left_region(...)` helper bounding view size and working area to `width_percent` of monitor view size.
+  - Synchronized left region in `Monitor::update_config` and `Monitor::update_output_size`.
+  - Added animations advance and ongoing checks for `left_region`.
+- **Region Transfer Actions (`src/layout/mod.rs`, `src/layout/monitor.rs`, `src/input/mod.rs`):**
+  - `MoveWindowToRegionLeft`: extracts active tile from the active right workspace and transfers it into `left_region`, activating left region focus.
+  - `MoveWindowToRegionRight`: extracts active tile from `left_region` and inserts it into the active right workspace, maintaining workspace padding invariants and activating right region focus.
+  - Added functional input dispatch in `State::do_action()` for `Action::MoveWindowToRegionLeft` and `Action::MoveWindowToRegionRight`.
+- **Layout & Rendering Bounding (`src/layout/scrolling.rs`, `src/layout/monitor.rs`, `src/niri.rs`):**
+  - Updated `compute_working_area` in `src/layout/scrolling.rs` to reserve `width_percent + gap` when split mode is active, preventing right workspace columns from overlapping the left region area.
+  - Updated `Monitor::render_workspaces` to render `left_region` statically and bound right workspace rendering via `CropRenderElement` at `panel_px_phys` whenever split mode is active.
+  - Updated `src/niri.rs` layer-shell popup cropping to respect `regions.width_percent`.
+- **Workspace Switch Invariance (FR-1, FR-2):**
+  - Verified and guaranteed that `switch_workspace` operates strictly on `workspaces` while `left_region` remains completely untouched.
+- **Unit Test Suite (`src/layout/tests/regions.rs`, `src/layout/scrolling.rs`):**
+  - Added 3 new unit tests in `src/layout/tests/regions.rs`:
+    - `left_region_initialization_and_layout_bounding`
+    - `window_transfer_between_regions`
+    - `workspace_switch_invariance`
+  - Added unit test `regions_reserves_left_area_and_gap` in `src/layout/scrolling.rs`.
+
+---
+
 ## [2026-10-28] - Milestone R2: Focus & Input Routing (splitdesk)
 
 ### Added

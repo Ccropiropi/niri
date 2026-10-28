@@ -2397,10 +2397,26 @@ impl State {
                 }
             }
             Action::MoveWindowToRegionLeft => {
-                // Inactive in Milestone R2; functional dispatch implemented in Milestone R3
+                if let Some(monitor) = self.niri.layout.active_monitor_mut() {
+                    if monitor.is_split_mode_active() {
+                        monitor.move_window_to_region_left();
+                        self.update_keyboard_focus();
+                        self.maybe_warp_cursor_to_focus();
+                        self.niri.layer_shell_on_demand_focus = None;
+                        self.niri.queue_redraw_all();
+                    }
+                }
             }
             Action::MoveWindowToRegionRight => {
-                // Inactive in Milestone R2; functional dispatch implemented in Milestone R3
+                if let Some(monitor) = self.niri.layout.active_monitor_mut() {
+                    if monitor.is_split_mode_active() {
+                        monitor.move_window_to_region_right();
+                        self.update_keyboard_focus();
+                        self.maybe_warp_cursor_to_focus();
+                        self.niri.layer_shell_on_demand_focus = None;
+                        self.niri.queue_redraw_all();
+                    }
+                }
             }
             Action::ToggleWindowUrgent(id) => {
                 let window = self

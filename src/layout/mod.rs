@@ -1207,6 +1207,14 @@ impl<W: LayoutElement> Layout<W> {
         match &mut self.monitor_set {
             MonitorSet::Normal { monitors, .. } => {
                 for mon in monitors {
+                    if let Some(left) = &mut mon.left_region {
+                        if left.tiles().any(|t| t.window().id() == window) {
+                            let removed = left.remove_tile(window, transaction);
+                            removed.tile.window().output_leave(&mon.output);
+                            return Some(removed);
+                        }
+                    }
+
                     for (idx, ws) in mon.workspaces.iter_mut().enumerate() {
                         if ws.has_window(window) {
                             let removed = ws.remove_tile(window, transaction);
@@ -2226,6 +2234,20 @@ impl<W: LayoutElement> Layout<W> {
             monitor
         };
         monitor.move_to_workspace(window, idx, activate);
+    }
+
+    pub fn move_window_to_region_left(&mut self) {
+        let Some(monitor) = self.active_monitor_mut() else {
+            return;
+        };
+        monitor.move_window_to_region_left();
+    }
+
+    pub fn move_window_to_region_right(&mut self) {
+        let Some(monitor) = self.active_monitor_mut() else {
+            return;
+        };
+        monitor.move_window_to_region_right();
     }
 
     pub fn move_column_to_workspace_up(&mut self, activate: bool) {
@@ -5037,11 +5059,24 @@ impl<W: LayoutElement> Layout<W> {
             .map(|move_| (self.monitor_for_output(&move_.output), move_.tile.window()))
             .into_iter();
 
-        let rest = self
-            .workspaces()
-            .flat_map(|(mon, _, ws)| ws.windows().map(move |win| (mon, win)));
+        let (mon_wins, no_out_wins) = match &self.monitor_set {
+            MonitorSet::Normal { monitors, .. } => {
+                let it = monitors.iter().flat_map(|mon| {
+                    mon.windows().map(move |win| (Some(mon), win))
+                });
+                (Some(it), None)
+            }
+            MonitorSet::NoOutputs { workspaces } => {
+                let it = workspaces.iter().flat_map(|ws| {
+                    ws.windows().map(|win| (None, win))
+                });
+                (None, Some(it))
+            }
+        };
 
-        moving_window.chain(rest)
+        moving_window
+            .chain(mon_wins.into_iter().flatten())
+            .chain(no_out_wins.into_iter().flatten())
     }
 
     pub fn has_window(&self, window: &W::Id) -> bool {

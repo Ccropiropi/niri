@@ -323,7 +323,13 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         clock: Clock,
         options: Rc<Options>,
     ) -> Self {
-        let working_area = compute_working_area(parent_area, scale, options.layout.struts, options.layout.panel_width);
+        let working_area = compute_working_area(
+            parent_area,
+            scale,
+            options.layout.struts,
+            options.layout.panel_width,
+            &options.regions,
+        );
 
         Self {
             columns: Vec::new(),
@@ -350,7 +356,13 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         scale: f64,
         options: Rc<Options>,
     ) {
-        let working_area = compute_working_area(parent_area, scale, options.layout.struts, options.layout.panel_width);
+        let working_area = compute_working_area(
+            parent_area,
+            scale,
+            options.layout.struts,
+            options.layout.panel_width,
+            &options.regions,
+        );
 
         for (column, data) in zip(&mut self.columns, &mut self.data) {
             column.update_config(view_size, working_area, parent_area, scale, options.clone());
@@ -3852,6 +3864,11 @@ impl<W: LayoutElement> ScrollingSpace<W> {
     }
 
     #[cfg(test)]
+    pub fn working_area(&self) -> Rectangle<f64, Logical> {
+        self.working_area
+    }
+
+    #[cfg(test)]
     pub fn parent_area(&self) -> Rectangle<f64, Logical> {
         self.parent_area
     }
@@ -3890,6 +3907,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
                 self.scale,
                 self.options.layout.struts,
                 self.options.layout.panel_width,
+                &self.options.regions,
             )
         );
 
@@ -5720,15 +5738,23 @@ fn compute_working_area(
     scale: f64,
     struts: Struts,
     panel_width_pct: f64,
+    regions: &niri_config::Regions,
 ) -> Rectangle<f64, Logical> {
     let mut working_area = parent_area;
 
-    // Resolve panel width percentage to pixels.
-    let panel_px = parent_area.size.w * panel_width_pct / 100.;
+    // Resolve panel width percentage or regions to pixels.
+    let (panel_px, gap) = if regions.enabled {
+        (
+            parent_area.size.w * (regions.width_percent / 100.),
+            regions.gap,
+        )
+    } else {
+        (parent_area.size.w * panel_width_pct / 100., 0.)
+    };
 
     // Add struts and panel width.
-    working_area.size.w = f64::max(0., working_area.size.w - struts.left.0 - panel_px - struts.right.0);
-    working_area.loc.x += struts.left.0 + panel_px;
+    working_area.size.w = f64::max(0., working_area.size.w - struts.left.0 - panel_px - gap - struts.right.0);
+    working_area.loc.x += struts.left.0 + panel_px + gap;
 
     working_area.size.h = f64::max(0., working_area.size.h - struts.top.0 - struts.bottom.0);
     working_area.loc.y += struts.top.0;
@@ -5813,7 +5839,7 @@ mod tests {
         };
 
         let parent_area = Rectangle::from_size(Size::from((1280., 720.)));
-        let area = compute_working_area(parent_area, 1., struts, 0.);
+        let area = compute_working_area(parent_area, 1., struts, 0., &niri_config::Regions::default());
 
         assert_eq!(round_logical_in_physical(1., area.loc.x), area.loc.x);
         assert_eq!(round_logical_in_physical(1., area.loc.y), area.loc.y);
@@ -5829,16 +5855,30 @@ mod tests {
         };
 
         let parent_area = Rectangle::from_size(Size::from((1280., 720.)));
-        compute_working_area(parent_area, 1., struts, 0.);
+        compute_working_area(parent_area, 1., struts, 0., &niri_config::Regions::default());
     }
 
     #[test]
     fn panel_width_reserves_left_strut_percent() {
         let struts = Struts::default();
         let parent_area = Rectangle::from_size(Size::from((1000., 500.)));
-        let area = compute_working_area(parent_area, 1., struts, 46.);
+        let area = compute_working_area(parent_area, 1., struts, 46., &niri_config::Regions::default());
 
         assert_eq!(area.loc.x, 460.);
         assert_eq!(area.size.w, 540.);
+    }
+
+    #[test]
+    fn regions_reserves_left_area_and_gap() {
+        let struts = Struts::default();
+        let parent_area = Rectangle::from_size(Size::from((1000., 500.)));
+        let mut regions = niri_config::Regions::default();
+        regions.enabled = true;
+        regions.width_percent = 50.;
+        regions.gap = 20.;
+        let area = compute_working_area(parent_area, 1., struts, 0., &regions);
+
+        assert_eq!(area.loc.x, 520.);
+        assert_eq!(area.size.w, 480.);
     }
 }

@@ -295,6 +295,34 @@ impl From<&super::OverviewProgress> for OverviewProgress {
 }
 
 impl<W: LayoutElement> Monitor<W> {
+    fn create_left_region(
+        view_size: Size<f64, Logical>,
+        working_area: Rectangle<f64, Logical>,
+        scale: f64,
+        clock: Clock,
+        options: &Options,
+    ) -> ScrollingSpace<W> {
+        let left_w = view_size.w * (options.regions.width_percent / 100.0);
+        let left_view_size = Size::from((left_w, view_size.h));
+        let left_working_area = Rectangle::new(
+            working_area.loc,
+            Size::from(((left_w - working_area.loc.x).max(0.0), working_area.size.h)),
+        );
+        let mut left_options = options.clone();
+        left_options.regions.enabled = false;
+        left_options.layout.panel_width = 0.0;
+        left_options.layout.struts = niri_config::Struts::default();
+        let left_options = Rc::new(left_options);
+
+        ScrollingSpace::new(
+            left_view_size,
+            left_working_area,
+            scale,
+            clock,
+            left_options,
+        )
+    }
+
     pub fn new(
         output: Output,
         mut workspaces: Vec<Workspace<W>>,
@@ -333,6 +361,18 @@ impl<W: LayoutElement> Monitor<W> {
         let ws = Workspace::new(output.clone(), clock.clone(), options.clone());
         workspaces.push(ws);
 
+        let left_region = if options.regions.enabled {
+            Some(Self::create_left_region(
+                view_size,
+                working_area,
+                scale.fractional_scale(),
+                clock.clone(),
+                &options,
+            ))
+        } else {
+            None
+        };
+
         Self {
             output_name: output.name(),
             output,
@@ -352,12 +392,18 @@ impl<W: LayoutElement> Monitor<W> {
             base_options,
             options,
             layout_config,
-            left_region: None,
+            left_region,
             focused_region: Region::Right,
         }
     }
 
     pub fn into_workspaces(mut self) -> Vec<Workspace<W>> {
+        if let Some(mut left) = self.left_region.take() {
+            while let Some(col) = left.remove_active_column() {
+                self.workspaces[self.active_workspace_idx].add_column(col, false, None);
+            }
+        }
+
         self.workspaces.retain(|ws| ws.has_windows_or_name());
 
         for ws in &mut self.workspaces {
@@ -415,6 +461,68 @@ impl<W: LayoutElement> Monitor<W> {
         self.focused_region = region;
     }
 
+    pub fn move_window_to_region_left(&mut self) {
+        if !self.is_split_mode_active() {
+            return;
+        }
+
+        let Some(left_region) = &mut self.left_region else {
+            return;
+        };
+
+        let active_ws = &mut self.workspaces[self.active_workspace_idx];
+        let Some(win_id) = active_ws.active_window().map(|w| w.id().clone()) else {
+            return;
+        };
+
+        let removed = active_ws.remove_tile(&win_id, Transaction::new());
+        removed.tile.window().output_enter(&self.output);
+        left_region.add_tile(
+            None,
+            removed.tile,
+            true,
+            removed.width,
+            removed.is_full_width,
+            None,
+        );
+        self.focused_region = Region::Left;
+    }
+
+    pub fn move_window_to_region_right(&mut self) {
+        if !self.is_split_mode_active() {
+            return;
+        }
+
+        let Some(left_region) = &mut self.left_region else {
+            return;
+        };
+
+        let Some(win_id) = left_region.active_window().map(|w| w.id().clone()) else {
+            return;
+        };
+
+        let removed = left_region.remove_tile(&win_id, Transaction::new());
+        let active_ws = &mut self.workspaces[self.active_workspace_idx];
+        active_ws.add_tile(
+            removed.tile,
+            WorkspaceAddWindowTarget::Auto,
+            ActivateWindow::Yes,
+            removed.width,
+            removed.is_full_width,
+            removed.is_floating,
+            None,
+        );
+
+        if self.active_workspace_idx == self.workspaces.len() - 1 {
+            self.add_workspace_bottom();
+        }
+        if self.options.layout.empty_workspace_above_first && self.active_workspace_idx == 0 {
+            self.add_workspace_top();
+        }
+
+        self.focused_region = Region::Right;
+    }
+
     pub fn idx_of_ws(&self, id: WorkspaceId) -> Option<usize> {
         self.workspaces.iter().position(|ws| ws.id() == id)
     }
@@ -424,7 +532,10 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn windows(&self) -> impl Iterator<Item = &W> {
-        self.workspaces.iter().flat_map(|ws| ws.windows())
+        self.workspaces
+            .iter()
+            .flat_map(|ws| ws.windows())
+            .chain(self.left_region.as_ref().into_iter().flat_map(|r| r.tiles().map(Tile::window)))
     }
 
     pub fn has_window(&self, window: &W::Id) -> bool {
@@ -1131,6 +1242,10 @@ impl<W: LayoutElement> Monitor<W> {
             None => (),
         }
 
+        if let Some(left) = &mut self.left_region {
+            left.advance_animations();
+        }
+
         for ws in &mut self.workspaces {
             ws.advance_animations();
         }
@@ -1141,6 +1256,10 @@ impl<W: LayoutElement> Monitor<W> {
             .as_ref()
             .is_some_and(|s| s.is_animation_ongoing())
             || self.workspaces.iter().any(|ws| ws.are_animations_ongoing())
+            || self
+                .left_region
+                .as_ref()
+                .is_some_and(|r| r.are_animations_ongoing())
     }
 
     pub fn are_transitions_ongoing(&self) -> bool {
@@ -1270,6 +1389,37 @@ impl<W: LayoutElement> Monitor<W> {
             ws.update_config(options.clone());
         }
 
+        if options.regions.enabled {
+            if let Some(left) = &mut self.left_region {
+                let left_w = self.view_size.w * (options.regions.width_percent / 100.0);
+                let left_view_size = Size::from((left_w, self.view_size.h));
+                let left_working_area = Rectangle::new(
+                    self.working_area.loc,
+                    Size::from(((left_w - self.working_area.loc.x).max(0.0), self.working_area.size.h)),
+                );
+                let mut left_options = (*options).clone();
+                left_options.regions.enabled = false;
+                left_options.layout.panel_width = 0.0;
+                left_options.layout.struts = niri_config::Struts::default();
+                left.update_config(
+                    left_view_size,
+                    left_working_area,
+                    self.scale.fractional_scale(),
+                    Rc::new(left_options),
+                );
+            } else {
+                self.left_region = Some(Self::create_left_region(
+                    self.view_size,
+                    self.working_area,
+                    self.scale.fractional_scale(),
+                    self.clock.clone(),
+                    &options,
+                ));
+            }
+        } else {
+            self.left_region = None;
+        }
+
         self.insert_hint_element
             .update_config(options.layout.insert_hint);
 
@@ -1300,6 +1450,27 @@ impl<W: LayoutElement> Monitor<W> {
         self.scale = self.output.current_scale();
         self.view_size = output_size(&self.output);
         self.working_area = compute_working_area(&self.output);
+
+        if self.is_split_mode_active() {
+            if let Some(left) = &mut self.left_region {
+                let left_w = self.view_size.w * (self.options.regions.width_percent / 100.0);
+                let left_view_size = Size::from((left_w, self.view_size.h));
+                let left_working_area = Rectangle::new(
+                    self.working_area.loc,
+                    Size::from(((left_w - self.working_area.loc.x).max(0.0), self.working_area.size.h)),
+                );
+                let mut left_options = (*self.options).clone();
+                left_options.regions.enabled = false;
+                left_options.layout.panel_width = 0.0;
+                left_options.layout.struts = niri_config::Struts::default();
+                left.update_config(
+                    left_view_size,
+                    left_working_area,
+                    self.scale.fractional_scale(),
+                    Rc::new(left_options),
+                );
+            }
+        }
 
         for ws in &mut self.workspaces {
             ws.update_output_size();
@@ -1830,7 +2001,11 @@ impl<W: LayoutElement> Monitor<W> {
         // - normal floating windows
         // - scrolling windows moving between workspaces
         // - normal scrolling windows
-        let panel_px = self.view_size.w * self.options.layout.panel_width / 100.;
+        let panel_px = if self.is_split_mode_active() {
+            self.view_size.w * (self.options.regions.width_percent / 100.)
+        } else {
+            self.view_size.w * self.options.layout.panel_width / 100.
+        };
         let panel_px_phys = (panel_px * scale).round() as i32;
 
         for pass in 0..4 {
@@ -1841,8 +2016,8 @@ impl<W: LayoutElement> Monitor<W> {
             for (ws, geo) in self.workspaces_with_render_geo_cull(cull) {
                 let geo_phys: Rectangle<i32, Physical> = geo.to_physical_precise_round(scale);
                 let is_switching = self.workspace_switch.is_some() || self.overview_progress.is_some();
-                let crop_bounds = if is_switching {
-                    let min_x = if self.options.layout.panel_width > 0. {
+                let crop_bounds = if is_switching || self.is_split_mode_active() {
+                    let min_x = if panel_px > 0. {
                         panel_px_phys - geo_phys.loc.x
                     } else {
                         -i32::MAX / 2
@@ -1925,6 +2100,36 @@ impl<W: LayoutElement> Monitor<W> {
                             push!(),
                         );
                     }
+                }
+            }
+
+            if pass == 3 {
+                if let Some(left_region) = &self.left_region {
+                    let xray_pos = XrayPos::new(Point::default(), 1.0);
+                    let focus_ring_left = focus_ring && self.focused_region == Region::Left;
+                    left_region.render(
+                        ctx.r(),
+                        xray_pos,
+                        focus_ring_left,
+                        RenderLayer::Normal,
+                        &mut |elem| {
+                            let elem = WorkspaceRenderElement::Scrolling(elem);
+                            let crop_bounds = Rectangle::new(
+                                Point::from((-i32::MAX / 2, -i32::MAX / 2)),
+                                Size::from((i32::MAX, i32::MAX)),
+                            );
+                            if let Some(elem) = CropRenderElement::from_element(elem, scale, crop_bounds) {
+                                let elem = MonitorInnerRenderElement::from(elem);
+                                let elem = RescaleRenderElement::from_element(elem, Point::default(), 1.0);
+                                let elem = RelocateRenderElement::from_element(
+                                    elem,
+                                    Point::default(),
+                                    Relocate::Relative,
+                                );
+                                push(elem);
+                            }
+                        },
+                    );
                 }
             }
         }
@@ -2342,6 +2547,10 @@ impl<W: LayoutElement> Monitor<W> {
             // Workspace positions must be rounded to physical pixels.
             assert_abs_diff_eq!(pos.x, rounded_pos.x, epsilon = 1e-5);
             assert_abs_diff_eq!(pos.y, rounded_pos.y, epsilon = 1e-5);
+        }
+
+        if let Some(left) = &self.left_region {
+            left.verify_invariants();
         }
     }
 }

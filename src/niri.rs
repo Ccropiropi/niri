@@ -4669,7 +4669,11 @@ impl Niri {
             mon.render_insert_hint_between_workspaces(ctx.renderer, &mut |elem| push(elem.into()));
 
             // Macro instead of closure to avoid borrowing push().
-            let panel_width = self.config.borrow().layout.panel_width;
+            let panel_width = if self.config.borrow().regions.enabled {
+                self.config.borrow().regions.width_percent
+            } else {
+                self.config.borrow().layout.panel_width
+            };
             let output_width = mon.view_size().w;
             macro_rules! process {
                 ($geo:expr) => {{
