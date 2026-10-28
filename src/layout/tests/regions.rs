@@ -450,3 +450,55 @@ fn toggle_split_mode_back_on() {
     assert_eq!(mon.active_workspace_ref().scrolling().working_area().size.w, 944.0);
     mon.verify_invariants();
 }
+
+#[test]
+fn ipc_telemetry_regions_query_and_events() {
+    let mut options = Options::default();
+    options.regions.enabled = false;
+    options.regions.width_percent = 50.0;
+
+    let mut layout = Layout::<TestWindow>::with_options(Clock::with_time(Duration::ZERO), options);
+    let output = make_test_output(1920, 1080);
+    layout.add_output(output, None);
+
+    // Initial state: disabled
+    assert!(!layout.is_split_mode_active());
+    assert_eq!(layout.focused_region(), None);
+
+    let win1 = TestWindow::new(TestWindowParams::new(1));
+    layout.add_window(win1, AddWindowTarget::Auto, None, None, false, false, ActivateWindow::Yes);
+    assert_eq!(layout.region_of_window(&1), None);
+
+    // Toggle split mode on
+    assert!(layout.toggle_split_mode());
+    assert!(layout.is_split_mode_active());
+    assert_eq!(layout.focused_region(), Some(Region::Right));
+    assert_eq!(layout.region_of_window(&1), Some(Region::Right));
+
+    // Move window 1 to left region
+    layout.move_window_to_region_left();
+    assert_eq!(layout.focused_region(), Some(Region::Left));
+    assert_eq!(layout.region_of_window(&1), Some(Region::Left));
+
+    // Add window 2 to right workspace
+    let win2 = TestWindow::new(TestWindowParams::new(2));
+    layout.add_window(win2, AddWindowTarget::Auto, None, None, false, false, ActivateWindow::Yes);
+    assert_eq!(layout.region_of_window(&2), Some(Region::Right));
+
+    // Verify with_windows yields both windows (left and right)
+    let mut visited = Vec::new();
+    layout.with_windows(|win, _out, ws_id, _layout| {
+        visited.push((*win.id(), ws_id.is_some()));
+    });
+    // Window 1 is in left_region (ws_id is None)
+    assert!(visited.iter().any(|(id, has_ws)| *id == 1 && !*has_ws));
+    // Window 2 is in right workspace (ws_id is Some)
+    assert!(visited.iter().any(|(id, has_ws)| *id == 2 && *has_ws));
+
+    // Toggle off
+    assert!(!layout.toggle_split_mode());
+    assert!(!layout.is_split_mode_active());
+    assert_eq!(layout.focused_region(), None);
+    assert_eq!(layout.region_of_window(&1), None);
+    assert_eq!(layout.region_of_window(&2), None);
+}

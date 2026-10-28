@@ -1382,6 +1382,23 @@ pub struct Window {
     ///
     /// The timestamp comes from the monotonic clock.
     pub focus_timestamp: Option<Timestamp>,
+    /// Whether regions (split mode) are enabled.
+    pub regions_enabled: bool,
+    /// Currently focused region on the monitor this window belongs to, if split mode is active.
+    pub focused_region: Option<Region>,
+    /// Region this window belongs to, if placed in a region.
+    pub region: Option<Region>,
+}
+
+/// A monitor region in split mode.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub enum Region {
+    /// Left (static) region.
+    Left,
+    /// Right (scrolling workspace) region.
+    #[default]
+    Right,
 }
 
 /// A moment in time.
@@ -1489,6 +1506,10 @@ pub struct Workspace {
     pub is_focused: bool,
     /// Id of the active window on this workspace, if any.
     pub active_window_id: Option<u64>,
+    /// Whether regions (split mode) are enabled.
+    pub regions_enabled: bool,
+    /// Currently focused region on the monitor this workspace belongs to, if split mode is active.
+    pub focused_region: Option<Region>,
 }
 
 /// Configured keyboard layouts.
@@ -1767,6 +1788,13 @@ pub enum Event {
         /// Note that this only indicates the [`Action::ToggleTouchpad`] state. The touchpad can be
         /// disabled in hardware, or via `input { touchpad { off; } }`—this is not reflected here.
         on: bool,
+    },
+    /// The regions configuration or focus changed.
+    RegionsChanged {
+        /// Whether regions (split mode) are currently enabled.
+        regions_enabled: bool,
+        /// Currently focused region on the active monitor, if regions are enabled.
+        focused_region: Option<Region>,
     },
 }
 
@@ -2192,5 +2220,44 @@ mod tests {
         );
         assert!("-".parse::<PositionChange>().is_err());
         assert!("10% ".parse::<PositionChange>().is_err());
+    }
+
+    #[test]
+    fn regions_ipc_serde_and_events() {
+        use crate::state::{EventStreamState, EventStreamStatePart};
+
+        let event = Event::RegionsChanged {
+            regions_enabled: true,
+            focused_region: Some(Region::Left),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let deserialized: Event = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            Event::RegionsChanged {
+                regions_enabled,
+                focused_region,
+            } => {
+                assert!(regions_enabled);
+                assert_eq!(focused_region, Some(Region::Left));
+            }
+            _ => panic!("wrong event"),
+        }
+
+        let mut state = EventStreamState::default();
+        assert!(!state.regions.regions_enabled);
+        assert_eq!(state.regions.focused_region, None);
+
+        state.apply(event);
+        assert!(state.regions.regions_enabled);
+        assert_eq!(state.regions.focused_region, Some(Region::Left));
+
+        let replicated = state.replicate();
+        assert!(replicated.iter().any(|e| matches!(
+            e,
+            Event::RegionsChanged {
+                regions_enabled: true,
+                focused_region: Some(Region::Left)
+            }
+        )));
     }
 }

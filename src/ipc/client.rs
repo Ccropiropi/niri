@@ -525,6 +525,14 @@ pub fn handle_msg(mut msg: Msg, json: bool, print_request: bool) -> anyhow::Resu
                     Event::TouchpadToggled { on } => {
                         println!("Touchpad enabled: {on}");
                     }
+                    Event::RegionsChanged {
+                        regions_enabled,
+                        focused_region,
+                    } => {
+                        println!(
+                            "Regions changed: enabled={regions_enabled}, focused={focused_region:?}"
+                        );
+                    }
                 }
             }
         }

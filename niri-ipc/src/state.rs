@@ -9,7 +9,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
-use crate::{Cast, Event, KeyboardLayouts, Window, Workspace};
+use crate::{Cast, Event, KeyboardLayouts, Region, Window, Workspace};
 
 /// Part of the state communicated via the event stream.
 pub trait EventStreamStatePart {
@@ -52,6 +52,9 @@ pub struct EventStreamState {
 
     /// State of touchpads.
     pub touchpad: TouchpadState,
+
+    /// State of regions (split mode).
+    pub regions: RegionsState,
 }
 
 /// The workspaces state communicated over the event stream.
@@ -118,6 +121,7 @@ impl EventStreamStatePart for EventStreamState {
         events.extend(self.config.replicate());
         events.extend(self.casts.replicate());
         events.extend(self.touchpad.replicate());
+        events.extend(self.regions.replicate());
         events
     }
 
@@ -129,6 +133,7 @@ impl EventStreamStatePart for EventStreamState {
         let event = self.config.apply(event)?;
         let event = self.casts.apply(event)?;
         let event = self.touchpad.apply(event)?;
+        let event = self.regions.apply(event)?;
         Some(event)
     }
 }
@@ -348,6 +353,38 @@ impl EventStreamStatePart for TouchpadState {
         match event {
             Event::TouchpadToggled { on } => {
                 self.on = on;
+            }
+            event => return Some(event),
+        }
+        None
+    }
+}
+
+/// The regions state communicated over the event stream.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct RegionsState {
+    /// Whether regions (split mode) are enabled.
+    pub regions_enabled: bool,
+    /// Currently focused region, if regions are enabled.
+    pub focused_region: Option<Region>,
+}
+
+impl EventStreamStatePart for RegionsState {
+    fn replicate(&self) -> Vec<Event> {
+        vec![Event::RegionsChanged {
+            regions_enabled: self.regions_enabled,
+            focused_region: self.focused_region,
+        }]
+    }
+
+    fn apply(&mut self, event: Event) -> Option<Event> {
+        match event {
+            Event::RegionsChanged {
+                regions_enabled,
+                focused_region,
+            } => {
+                self.regions_enabled = regions_enabled;
+                self.focused_region = focused_region;
             }
             event => return Some(event),
         }

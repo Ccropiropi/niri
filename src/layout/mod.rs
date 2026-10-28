@@ -97,14 +97,7 @@ pub const RESIZE_ANIMATION_THRESHOLD: f64 = 10.;
 const INTERACTIVE_MOVE_START_THRESHOLD: f64 = 256. * 256.;
 
 /// A region of a monitor in split mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Region {
-    /// Left (static) region.
-    Left,
-    /// Right (workspace) region.
-    #[default]
-    Right,
-}
+pub use niri_ipc::Region;
 
 /// Opacity of interactively moved tiles targeting the scrolling layout.
 const INTERACTIVE_MOVE_ALPHA: f64 = 0.75;
@@ -1752,6 +1745,11 @@ impl<W: LayoutElement> Layout<W> {
         match &self.monitor_set {
             MonitorSet::Normal { monitors, .. } => {
                 for mon in monitors {
+                    if let Some(left) = &mon.left_region {
+                        for (tile, layout) in left.tiles_with_ipc_layouts() {
+                            f(tile.window(), Some(&mon.output), None, layout);
+                        }
+                    }
                     for ws in &mon.workspaces {
                         for (tile, layout) in ws.tiles_with_ipc_layouts() {
                             f(tile.window(), Some(&mon.output), Some(ws.id()), layout);
@@ -1777,6 +1775,11 @@ impl<W: LayoutElement> Layout<W> {
         match &mut self.monitor_set {
             MonitorSet::Normal { monitors, .. } => {
                 for mon in monitors {
+                    if let Some(left) = &mut mon.left_region {
+                        for tile in left.tiles_mut() {
+                            f(tile.window_mut(), Some(&mon.output));
+                        }
+                    }
                     for ws in &mut mon.workspaces {
                         for win in ws.windows_mut() {
                             f(win, Some(&mon.output));
@@ -2256,6 +2259,41 @@ impl<W: LayoutElement> Layout<W> {
         options.regions.enabled = new_enabled;
         self.update_options(options);
         new_enabled
+    }
+
+    pub fn is_split_mode_active(&self) -> bool {
+        self.options.regions.enabled
+    }
+
+    pub fn focused_region(&self) -> Option<Region> {
+        if !self.is_split_mode_active() {
+            return None;
+        }
+        self.active_monitor_ref().map(|m| m.focused_region)
+    }
+
+    pub fn region_of_window(&self, id: &W::Id) -> Option<Region> {
+        if !self.is_split_mode_active() {
+            return None;
+        }
+        match &self.monitor_set {
+            MonitorSet::Normal { monitors, .. } => {
+                for mon in monitors {
+                    if let Some(left) = &mon.left_region {
+                        if left.tiles().any(|t| t.window().id() == id) {
+                            return Some(Region::Left);
+                        }
+                    }
+                    for ws in &mon.workspaces {
+                        if ws.tiles().any(|t| t.window().id() == id) {
+                            return Some(Region::Right);
+                        }
+                    }
+                }
+            }
+            MonitorSet::NoOutputs { .. } => {}
+        }
+        None
     }
 
     pub fn move_column_to_workspace_up(&mut self, activate: bool) {

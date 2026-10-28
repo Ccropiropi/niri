@@ -2362,6 +2362,8 @@ impl State {
                 self.update_keyboard_focus();
                 self.maybe_warp_cursor_to_focus();
                 self.niri.layer_shell_on_demand_focus = None;
+                self.ipc_refresh_regions();
+                self.ipc_refresh_layout();
                 self.niri.queue_redraw_all();
             }
             Action::FocusRegionLeft => {
@@ -2371,6 +2373,8 @@ impl State {
                         self.update_keyboard_focus();
                         self.maybe_warp_cursor_to_focus();
                         self.niri.layer_shell_on_demand_focus = None;
+                        self.ipc_refresh_regions();
+                        self.ipc_refresh_layout();
                         self.niri.queue_redraw_all();
                     }
                 }
@@ -2382,6 +2386,8 @@ impl State {
                         self.update_keyboard_focus();
                         self.maybe_warp_cursor_to_focus();
                         self.niri.layer_shell_on_demand_focus = None;
+                        self.ipc_refresh_regions();
+                        self.ipc_refresh_layout();
                         self.niri.queue_redraw_all();
                     }
                 }
@@ -2396,6 +2402,8 @@ impl State {
                         self.update_keyboard_focus();
                         self.maybe_warp_cursor_to_focus();
                         self.niri.layer_shell_on_demand_focus = None;
+                        self.ipc_refresh_regions();
+                        self.ipc_refresh_layout();
                         self.niri.queue_redraw_all();
                     }
                 }
@@ -2407,6 +2415,8 @@ impl State {
                         self.update_keyboard_focus();
                         self.maybe_warp_cursor_to_focus();
                         self.niri.layer_shell_on_demand_focus = None;
+                        self.ipc_refresh_regions();
+                        self.ipc_refresh_layout();
                         self.niri.queue_redraw_all();
                     }
                 }
@@ -2418,6 +2428,8 @@ impl State {
                         self.update_keyboard_focus();
                         self.maybe_warp_cursor_to_focus();
                         self.niri.layer_shell_on_demand_focus = None;
+                        self.ipc_refresh_regions();
+                        self.ipc_refresh_layout();
                         self.niri.queue_redraw_all();
                     }
                 }
@@ -2983,6 +2995,8 @@ impl State {
                         if clicked_region != monitor.focused_region {
                             monitor.focused_region = clicked_region;
                             self.update_keyboard_focus();
+                            self.ipc_refresh_regions();
+                            self.ipc_refresh_layout();
                         }
                     }
                 }

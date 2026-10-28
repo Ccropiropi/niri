@@ -1,3 +1,22 @@
+## [2026-10-28] - Milestone R5: IPC & Shell Telemetry (splitdesk)
+
+### Added
+- **IPC Data Models (`niri-ipc/src/lib.rs` & `state.rs`):**
+  - Added `Region` enum (`Left`, `Right`) to IPC definitions.
+  - Added `regions_enabled: bool`, `focused_region: Option<Region>`, and `region: Option<Region>` to `Window` and `Workspace` structures.
+  - Added `Event::RegionsChanged { regions_enabled, focused_region }` on the JSON event stream.
+  - Added `RegionsState` to `EventStreamState` tracking and replicating region state.
+- **Server Event Emission & Layout Queries (`src/ipc/server.rs`, `src/layout/mod.rs`):**
+  - Exposed `Layout::is_split_mode_active()`, `Layout::focused_region()`, and `Layout::region_of_window()`.
+  - Added `ipc_refresh_regions()` emitting `Event::RegionsChanged` whenever region focus or enablement changes.
+  - Updated `with_windows` in layout so windows residing in `left_region` are queried and exposed over IPC.
+  - Connected region change refreshes to action handlers and pointer click triggers in `src/input/mod.rs`.
+- **Unit & Serde Tests:**
+  - Added `tests::regions_ipc_serde_and_events` in `niri-ipc/src/lib.rs`.
+  - Added `layout::tests::regions::ipc_telemetry_regions_query_and_events` in `src/layout/tests/regions.rs`.
+
+---
+
 ## [2026-10-28] - Milestone R4: Runtime Toggle & Window Evacuation (splitdesk)
 
 ### Added

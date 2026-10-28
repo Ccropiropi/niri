@@ -17,7 +17,7 @@ use futures_util::{select_biased, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, Fu
 use niri_config::OutputName;
 use niri_ipc::state::{EventStreamState, EventStreamStatePart as _};
 use niri_ipc::{
-    Action, Event, KeyboardLayouts, OutputConfigChanged, Overview, Reply, Request, Response,
+    Action, Event, KeyboardLayouts, OutputConfigChanged, Overview, Region, Reply, Request, Response,
     Timestamp, WindowLayout, Workspace,
 };
 use smithay::desktop::layer_map_for_output;
@@ -517,6 +517,9 @@ fn make_ipc_window(
     mapped: &Mapped,
     workspace_id: Option<WorkspaceId>,
     layout: WindowLayout,
+    regions_enabled: bool,
+    focused_region: Option<Region>,
+    region: Option<Region>,
 ) -> niri_ipc::Window {
     with_toplevel_role(mapped.toplevel(), |role| niri_ipc::Window {
         id: mapped.id().get(),
@@ -529,6 +532,9 @@ fn make_ipc_window(
         is_urgent: mapped.is_urgent(),
         layout,
         focus_timestamp: mapped.get_focus_timestamp().map(Timestamp::from),
+        regions_enabled,
+        focused_region,
+        region,
     })
 }
 
@@ -585,6 +591,7 @@ impl State {
         self.ipc_refresh_workspaces();
         self.ipc_refresh_windows();
         self.ipc_refresh_overview();
+        self.ipc_refresh_regions();
     }
 
     fn ipc_refresh_workspaces(&mut self) {
@@ -616,9 +623,19 @@ impl State {
 
             // Check for any changes that we can't signal as individual events.
             let output_name = mon.map(|mon| mon.output_name());
+            let mon_regions_enabled = mon.is_some_and(|m| m.is_split_mode_active());
+            let mon_focused_region = mon.and_then(|m| {
+                if m.is_split_mode_active() {
+                    Some(m.focused_region)
+                } else {
+                    None
+                }
+            });
             if ipc_ws.idx != u8::try_from(ws_idx + 1).unwrap_or(u8::MAX)
                 || ipc_ws.name.as_ref() != ws.name()
                 || ipc_ws.output.as_ref() != output_name
+                || ipc_ws.regions_enabled != mon_regions_enabled
+                || ipc_ws.focused_region != mon_focused_region
             {
                 need_workspaces_changed = true;
                 break;
@@ -664,6 +681,14 @@ impl State {
                 .workspaces()
                 .map(|(mon, ws_idx, ws)| {
                     let id = ws.id().get();
+                    let mon_regions_enabled = mon.is_some_and(|mon| mon.is_split_mode_active());
+                    let mon_focused_region = mon.and_then(|mon| {
+                        if mon.is_split_mode_active() {
+                            Some(mon.focused_region)
+                        } else {
+                            None
+                        }
+                    });
                     Workspace {
                         id,
                         idx: u8::try_from(ws_idx + 1).unwrap_or(u8::MAX),
@@ -673,6 +698,8 @@ impl State {
                         is_active: mon.is_some_and(|mon| mon.active_workspace_idx() == ws_idx),
                         is_focused: Some(id) == focused_ws_id,
                         active_window_id: ws.active_window().map(|win| win.id().get()),
+                        regions_enabled: mon_regions_enabled,
+                        focused_region: mon_focused_region,
                     }
                 })
                 .collect();
@@ -701,6 +728,9 @@ impl State {
 
         let mut batch_change_layouts: Vec<(u64, WindowLayout)> = Vec::new();
 
+        let regions_enabled = layout.is_split_mode_active();
+        let focused_region = layout.focused_region();
+
         // Check for window changes.
         let mut seen = HashSet::new();
         let mut focused_id = None;
@@ -708,12 +738,21 @@ impl State {
             let id = mapped.id().get();
             seen.insert(id);
 
+            let region = layout.region_of_window(&mapped.window);
+
             if mapped.is_focused() {
                 focused_id = Some(id);
             }
 
             let Some(ipc_win) = state.windows.get(&id) else {
-                let window = make_ipc_window(mapped, ws_id, window_layout);
+                let window = make_ipc_window(
+                    mapped,
+                    ws_id,
+                    window_layout,
+                    regions_enabled,
+                    focused_region,
+                    region,
+                );
                 events.push(Event::WindowOpenedOrChanged { window });
                 return;
             };
@@ -726,8 +765,19 @@ impl State {
                 ipc_win.title != role.title || ipc_win.app_id != role.app_id
             });
 
+            changed |= ipc_win.regions_enabled != regions_enabled
+                || ipc_win.focused_region != focused_region
+                || ipc_win.region != region;
+
             if changed {
-                let window = make_ipc_window(mapped, ws_id, window_layout);
+                let window = make_ipc_window(
+                    mapped,
+                    ws_id,
+                    window_layout,
+                    regions_enabled,
+                    focused_region,
+                    region,
+                );
                 events.push(Event::WindowOpenedOrChanged { window });
                 return;
             }
@@ -999,6 +1049,31 @@ impl State {
 
         let event = Event::ScreenshotCaptured { path };
         state.apply(event.clone());
+        server.send_event(event);
+    }
+
+    pub fn ipc_refresh_regions(&mut self) {
+        let Some(server) = &self.niri.ipc_server else {
+            return;
+        };
+
+        let regions_enabled = self.niri.layout.is_split_mode_active();
+        let focused_region = self.niri.layout.focused_region();
+
+        let mut state = server.event_stream_state.borrow_mut();
+        let regions_state = &mut state.regions;
+
+        if regions_state.regions_enabled == regions_enabled
+            && regions_state.focused_region == focused_region
+        {
+            return;
+        }
+
+        let event = Event::RegionsChanged {
+            regions_enabled,
+            focused_region,
+        };
+        regions_state.apply(event.clone());
         server.send_event(event);
     }
 }
