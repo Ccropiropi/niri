@@ -2250,6 +2250,14 @@ impl<W: LayoutElement> Layout<W> {
         monitor.move_window_to_region_right();
     }
 
+    pub fn toggle_split_mode(&mut self) -> bool {
+        let new_enabled = !self.options.regions.enabled;
+        let mut options = (*self.options).clone();
+        options.regions.enabled = new_enabled;
+        self.update_options(options);
+        new_enabled
+    }
+
     pub fn move_column_to_workspace_up(&mut self, activate: bool) {
         let Some(monitor) = self.active_monitor() else {
             return;

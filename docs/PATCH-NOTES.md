@@ -1,3 +1,24 @@
+## [2026-10-28] - Milestone R4: Runtime Toggle & Window Evacuation (splitdesk)
+
+### Added
+- **Runtime Toggle Split Mode (`src/layout/mod.rs`, `src/layout/monitor.rs`):**
+  - Implemented `Layout::toggle_split_mode(&mut self) -> bool` toggling `self.options.regions.enabled` and synchronizing option state across all monitors and workspaces via `update_options`.
+  - Implemented `Monitor::toggle_split_mode(&mut self) -> bool` updating monitor base options and delegating to `update_config`.
+- **Zero-Loss Window Evacuation (`src/layout/monitor.rs`):**
+  - In `Monitor::update_config`, when split mode transitions to disabled (`!options.regions.enabled`), safely evacuates all columns and tiles from `self.left_region.take()` into `self.workspaces[self.active_workspace_idx]`.
+  - Maintains workspace invariants by appending empty workspaces if evacuated windows landed on boundary workspaces (`add_workspace_bottom` / `add_workspace_top`).
+  - Resets `focused_region = Region::Right` and drops `left_region`.
+  - Updates all workspace working areas to restore normal unconstrained layout geometry.
+  - When re-enabled, recreates `left_region` with bounded layout dimensions.
+  - Preserves 100% zero window loss across arbitrary toggle cycles.
+- **Input Action Dispatch (`src/input/mod.rs`):**
+  - Connected `Action::ToggleSplitMode` in `State::do_action()`, invoking `layout.toggle_split_mode()`, updating keyboard focus and cursor position, clearing layer-shell on-demand focus, and queueing a full redraw.
+- **Unit Test Suite (`src/layout/tests/regions.rs`):**
+  - Added unit test `toggle_split_mode_roundtrip_evacuation` verifying evacuation of multiple windows from `left_region` into active workspace on disable, full-width working area restoration, and zero window loss.
+  - Added unit test `toggle_split_mode_back_on` verifying re-enabling split mode recreates bounded `left_region` and restores right-bounded workspace layout geometry without loss of existing windows, testing both `Layout::toggle_split_mode` and `Monitor::toggle_split_mode`.
+
+---
+
 ## [2026-10-28] - Milestone R3: Static Left Region & Layout Bounding (splitdesk)
 
 ### Added

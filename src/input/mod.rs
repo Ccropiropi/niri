@@ -2358,7 +2358,11 @@ impl State {
                 }
             }
             Action::ToggleSplitMode => {
-                // Inactive in Milestone R2; functional dispatch implemented in Milestone R4
+                self.niri.layout.toggle_split_mode();
+                self.update_keyboard_focus();
+                self.maybe_warp_cursor_to_focus();
+                self.niri.layer_shell_on_demand_focus = None;
+                self.niri.queue_redraw_all();
             }
             Action::FocusRegionLeft => {
                 if let Some(monitor) = self.niri.layout.active_monitor_mut() {

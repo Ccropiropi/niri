@@ -523,6 +523,14 @@ impl<W: LayoutElement> Monitor<W> {
         self.focused_region = Region::Right;
     }
 
+    pub fn toggle_split_mode(&mut self) -> bool {
+        let new_enabled = !self.options.regions.enabled;
+        let mut base_options = (*self.base_options).clone();
+        base_options.regions.enabled = new_enabled;
+        self.update_config(Rc::new(base_options));
+        new_enabled
+    }
+
     pub fn idx_of_ws(&self, id: WorkspaceId) -> Option<usize> {
         self.workspaces.iter().position(|ws| ws.id() == id)
     }
@@ -1385,6 +1393,22 @@ impl<W: LayoutElement> Monitor<W> {
             }
         }
 
+        if !options.regions.enabled {
+            if let Some(mut left) = self.left_region.take() {
+                let active_ws = &mut self.workspaces[self.active_workspace_idx];
+                while let Some(col) = left.remove_active_column() {
+                    active_ws.add_column(col, false, None);
+                }
+                if self.active_workspace_idx == self.workspaces.len() - 1 {
+                    self.add_workspace_bottom();
+                }
+                if options.layout.empty_workspace_above_first && self.active_workspace_idx == 0 {
+                    self.add_workspace_top();
+                }
+            }
+            self.focused_region = Region::Right;
+        }
+
         for ws in &mut self.workspaces {
             ws.update_config(options.clone());
         }
@@ -1416,8 +1440,6 @@ impl<W: LayoutElement> Monitor<W> {
                     &options,
                 ));
             }
-        } else {
-            self.left_region = None;
         }
 
         self.insert_hint_element

@@ -312,3 +312,141 @@ fn workspace_switch_invariance() {
     // Verify invariants pass
     mon.verify_invariants();
 }
+
+#[test]
+fn toggle_split_mode_roundtrip_evacuation() {
+    let mut options = Options::default();
+    options.regions.enabled = true;
+    options.regions.width_percent = 50.0;
+    options.regions.gap = 16.0;
+
+    let mut layout = Layout::<TestWindow>::with_options(Clock::with_time(Duration::ZERO), options);
+    let output = make_test_output(1920, 1080);
+    layout.add_output(output, None);
+
+    // Add window 1 to right workspace and move to left region
+    let win1 = TestWindow::new(TestWindowParams::new(1));
+    layout.add_window(win1, AddWindowTarget::Auto, None, None, false, false, ActivateWindow::Yes);
+    layout.move_window_to_region_left();
+
+    // Add window 2 to right workspace
+    let win2 = TestWindow::new(TestWindowParams::new(2));
+    layout.add_window(win2, AddWindowTarget::Auto, None, None, false, false, ActivateWindow::Yes);
+
+    // Add window 3 to right workspace and move to left region
+    let win3 = TestWindow::new(TestWindowParams::new(3));
+    layout.add_window(win3, AddWindowTarget::Auto, None, None, false, false, ActivateWindow::Yes);
+    layout.move_window_to_region_left();
+
+    // Verify initial layout state
+    {
+        let mon = layout.active_monitor().unwrap();
+        assert!(mon.is_split_mode_active());
+        assert!(mon.left_region.is_some());
+        assert_eq!(mon.windows().count(), 3);
+        let left = mon.left_region.as_ref().unwrap();
+        assert!(left.tiles().any(|t| t.window().id() == &1));
+        assert!(left.tiles().any(|t| t.window().id() == &3));
+        assert!(mon.active_workspace_ref().has_window(&2));
+        assert_eq!(mon.focused_region, Region::Left);
+    }
+
+    // Toggle split mode OFF
+    let active = layout.toggle_split_mode();
+    assert!(!active);
+
+    {
+        let mon = layout.active_monitor().unwrap();
+        assert!(!mon.is_split_mode_active());
+        assert!(mon.left_region.is_none());
+        assert_eq!(mon.focused_region, Region::Right);
+
+        // 100% zero window loss: all 3 windows safely evacuated to active workspace
+        assert_eq!(mon.windows().count(), 3);
+        let active_ws = mon.active_workspace_ref();
+        assert!(active_ws.has_window(&1));
+        assert!(active_ws.has_window(&2));
+        assert!(active_ws.has_window(&3));
+
+        // Restored normal working area dimensions on workspaces
+        assert_eq!(active_ws.scrolling().working_area().loc.x, 0.0);
+        assert_eq!(active_ws.scrolling().working_area().size.w, 1920.0);
+
+        mon.verify_invariants();
+    }
+
+    layout.verify_invariants();
+}
+
+#[test]
+fn toggle_split_mode_back_on() {
+    let mut options = Options::default();
+    options.regions.enabled = true;
+    options.regions.width_percent = 50.0;
+    options.regions.gap = 16.0;
+
+    let mut layout = Layout::<TestWindow>::with_options(Clock::with_time(Duration::ZERO), options);
+    let output = make_test_output(1920, 1080);
+    layout.add_output(output, None);
+
+    // Add window 1 and move to left region
+    let win1 = TestWindow::new(TestWindowParams::new(1));
+    layout.add_window(win1, AddWindowTarget::Auto, None, None, false, false, ActivateWindow::Yes);
+    layout.move_window_to_region_left();
+
+    // Toggle split mode OFF
+    let active = layout.toggle_split_mode();
+    assert!(!active);
+    {
+        let mon = layout.active_monitor().unwrap();
+        assert!(!mon.is_split_mode_active());
+        assert!(mon.left_region.is_none());
+        assert!(mon.active_workspace_ref().has_window(&1));
+    }
+
+    // Toggle split mode BACK ON
+    let active = layout.toggle_split_mode();
+    assert!(active);
+
+    {
+        let mon = layout.active_monitor().unwrap();
+        assert!(mon.is_split_mode_active());
+        assert!(mon.left_region.is_some());
+
+        // Left region recreated with bounded layout
+        let left = mon.left_region.as_ref().unwrap();
+        assert_eq!(left.view_size().w, 960.0);
+        assert_eq!(left.view_size().h, 1080.0);
+        assert_eq!(left.working_area().loc.x, 0.0);
+        assert_eq!(left.working_area().size.w, 960.0);
+
+        // Right workspace bounded to the right
+        let right_ws = mon.active_workspace_ref();
+        assert_eq!(right_ws.scrolling().working_area().loc.x, 976.0);
+        assert_eq!(right_ws.scrolling().working_area().size.w, 944.0);
+
+        // Window 1 retained on active workspace
+        assert!(right_ws.has_window(&1));
+        assert_eq!(mon.windows().count(), 1);
+
+        mon.verify_invariants();
+    }
+
+    layout.verify_invariants();
+
+    // Verify Monitor::toggle_split_mode directly
+    let mon = layout.active_monitor_mut().unwrap();
+    let state = mon.toggle_split_mode();
+    assert!(!state);
+    assert!(!mon.is_split_mode_active());
+    assert!(mon.left_region.is_none());
+    assert_eq!(mon.active_workspace_ref().scrolling().working_area().size.w, 1920.0);
+
+    let state = mon.toggle_split_mode();
+    assert!(state);
+    assert!(mon.is_split_mode_active());
+    assert!(mon.left_region.is_some());
+    assert_eq!(mon.left_region.as_ref().unwrap().working_area().size.w, 960.0);
+    assert_eq!(mon.active_workspace_ref().scrolling().working_area().size.w, 944.0);
+    mon.verify_invariants();
+}
