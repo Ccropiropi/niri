@@ -47,6 +47,34 @@ impl Options {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SlantClipSide {
+    LeftOnly,
+    RightOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SlantClip {
+    pub top_x: f32,
+    pub slant: f32,
+    pub height: f32,
+    pub side: SlantClipSide,
+}
+
+impl SlantClip {
+    pub fn invert(mut self) -> Self {
+        self.side = match self.side {
+            SlantClipSide::LeftOnly => SlantClipSide::RightOnly,
+            SlantClipSide::RightOnly => SlantClipSide::LeftOnly,
+        };
+        self
+    }
+    pub fn with_side(mut self, side: SlantClipSide) -> Self {
+        self.side = side;
+        self
+    }
+}
+
 /// Render-time parameters.
 #[derive(Debug)]
 pub struct RenderParams {
@@ -60,6 +88,7 @@ pub struct RenderParams {
     pub clip: Option<(Rectangle<f64, Logical>, CornerRadius)>,
     /// Scale to use for rounding to physical pixels.
     pub scale: f64,
+    pub slant_clip: Option<SlantClip>,
 }
 
 impl RenderParams {
@@ -258,6 +287,7 @@ fn render_params_for_tile(
         subregion,
         clip,
         scale,
+        slant_clip: None,
     })
 }
 
@@ -295,6 +325,7 @@ pub fn render_for_tile(
     effect: niri_config::BackgroundEffect,
     should_block_out: bool,
     xray_pos: XrayPos,
+    slant_clip: Option<SlantClip>,
     push: &mut dyn FnMut(BackgroundEffectElement),
 ) {
     with_states(surface, |states| {
@@ -314,7 +345,7 @@ pub fn render_for_tile(
         let mut surface_geo = surface_geo(states).unwrap_or_default().to_f64();
         surface_geo.loc += surface_off;
 
-        let Some(params) = render_params_for_tile(
+        let Some(mut params) = render_params_for_tile(
             geometry,
             scale,
             clip_to_geometry,
@@ -325,6 +356,7 @@ pub fn render_for_tile(
         ) else {
             return;
         };
+        params.slant_clip = slant_clip;
 
         let xray_pos = xray_pos.offset(params.geometry.loc - geometry.loc);
         background_effect.render(ctx, ns, params, xray_pos, push);

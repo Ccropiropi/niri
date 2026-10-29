@@ -25,6 +25,7 @@ uniform float niri_scale;
 uniform vec2 geo_size;
 uniform vec4 corner_radius;
 uniform mat3 input_to_geo;
+uniform vec4 slant_clip; // x: top_x, y: slant, z: height, w: mode (0: none, 1: left_only, 2: right_only)
 
 float niri_rounding_alpha(vec2 coords, vec2 size, vec4 corner_radius);
 vec4 postprocess(vec4 color);
@@ -46,6 +47,20 @@ void main() {
     } else {
         // Apply corner rounding inside geometry.
         color = color * niri_rounding_alpha(coords_geo.xy * geo_size, geo_size, corner_radius);
+    }
+
+    // Slant Region Clipping with sub-pixel feathering
+    if (slant_clip.w > 0.5) {
+        vec2 pos_px = coords_geo.xy * geo_size;
+        float sep_x = slant_clip.x - slant_clip.y * (pos_px.y / max(slant_clip.z, 1.0));
+        float dist = pos_px.x - sep_x;
+        float factor;
+        if (slant_clip.w < 1.5) {
+            factor = 1.0 - smoothstep(-0.75, 0.75, dist);
+        } else {
+            factor = smoothstep(-0.75, 0.75, dist);
+        }
+        color = color * factor;
     }
 
     // Apply final alpha and tint.

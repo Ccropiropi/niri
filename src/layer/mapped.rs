@@ -17,7 +17,8 @@ use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 use crate::render_helpers::surface::push_elements_from_surface_tree;
 use crate::render_helpers::xray::XrayPos;
-use crate::render_helpers::{background_effect, RenderCtx};
+use crate::render_helpers::background_effect::{self, SlantClip, SlantClipSide};
+use crate::render_helpers::RenderCtx;
 use crate::utils::{baba_is_float_offset, round_logical_in_physical};
 
 #[derive(Debug)]
@@ -190,6 +191,7 @@ impl MappedLayer {
         ns: Option<usize>,
         location: Point<f64, Logical>,
         xray_pos: XrayPos,
+        slant_clip: Option<SlantClip>,
         push: &mut dyn FnMut(LayerSurfaceRenderElement<R>),
     ) {
         let scale = Scale::from(self.scale);
@@ -237,6 +239,14 @@ impl MappedLayer {
         let surface_off = Point::new(0., 0.); // No geometry on layer surfaces.
         let surface_anim_scale = Scale::from(1.);
         let radius = self.rules.geometry_corner_radius.unwrap_or_default();
+        let slant_clip = match self.rules.background_effect.region_clip {
+            Some(niri_config::RegionClipMode::Inactive) => slant_clip,
+            Some(niri_config::RegionClipMode::Active) => slant_clip.map(|s| s.invert()),
+            Some(niri_config::RegionClipMode::Left) => slant_clip.map(|s| s.with_side(SlantClipSide::LeftOnly)),
+            Some(niri_config::RegionClipMode::Right) => slant_clip.map(|s| s.with_side(SlantClipSide::RightOnly)),
+            Some(niri_config::RegionClipMode::None) | None => None,
+        };
+
         background_effect::render_for_tile(
             ctx.as_gles(),
             ns,
@@ -251,6 +261,7 @@ impl MappedLayer {
             self.rules.background_effect,
             should_block_out,
             xray_pos,
+            slant_clip,
             &mut |elem| push(elem.into()),
         );
     }
@@ -320,6 +331,7 @@ impl MappedLayer {
                 effect,
                 false,
                 xray_pos,
+                None,
                 &mut |elem| push(elem.into()),
             );
         }

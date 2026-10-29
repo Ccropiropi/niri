@@ -153,7 +153,7 @@ use crate::layer::MappedLayer;
 use crate::layout::tile::TileRenderElement;
 use crate::layout::workspace::{Workspace, WorkspaceId};
 use crate::layout::{
-    HitType, Layout, LayoutElement as _, LayoutElementRenderElement, MonitorRenderElement,
+    HitType, Layout, LayoutElement as _, LayoutElementRenderElement, MonitorRenderElement, Region,
 };
 use crate::niri_render_elements;
 use crate::protocols::ext_workspace::{self, ExtWorkspaceManagerState};
@@ -162,6 +162,7 @@ use crate::protocols::gamma_control::GammaControlManagerState;
 use crate::protocols::mutter_x11_interop::MutterX11InteropManagerState;
 use crate::protocols::output_management::OutputManagementManagerState;
 use crate::protocols::screencopy::{Screencopy, ScreencopyBuffer, ScreencopyManagerState};
+use crate::render_helpers::background_effect::{SlantClip, SlantClipSide};
 use crate::render_helpers::blur::BlurOptions;
 use crate::render_helpers::debug::push_opaque_regions;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
@@ -4576,6 +4577,24 @@ impl Niri {
         let mon = self.layout.monitor_for_output(output).unwrap();
         let zoom = mon.overview_zoom();
 
+        let slant_clip = if self.config.borrow().regions.enabled {
+            let regions_config = self.config.borrow().regions;
+            let top_x = (mon.view_size().w * (regions_config.width_percent / 100.0)) as f32;
+            let slant = (mon.view_size().w * (regions_config.slant_percent / 100.0)) as f32;
+            let side = match mon.focused_region {
+                Region::Left => SlantClipSide::RightOnly,
+                Region::Right => SlantClipSide::LeftOnly,
+            };
+            Some(SlantClip {
+                top_x,
+                slant,
+                height: mon.view_size().h as f32,
+                side,
+            })
+        } else {
+            None
+        };
+
         // Get layer-shell elements.
         let layer_map = layer_map_for_output(output);
 
@@ -4616,6 +4635,7 @@ impl Niri {
                     $layer,
                     $xray_pos,
                     $backdrop,
+                    slant_clip,
                     $push,
                 );
             }};
@@ -4790,6 +4810,7 @@ impl Niri {
                 Layer::Background,
                 XrayPos::default(),
                 false,
+                None,
                 &mut |elem| elements.push(elem.into()),
             );
             // Avoid unused capacity remaining forever.
@@ -4807,6 +4828,7 @@ impl Niri {
                 Layer::Background,
                 XrayPos::default(),
                 true,
+                None,
                 &mut |elem| elements.push(elem.into()),
             );
             // Avoid unused capacity remaining forever.
@@ -4871,12 +4893,13 @@ impl Niri {
         layer: Layer,
         xray_pos: XrayPos,
         for_backdrop: bool,
+        slant_clip: Option<SlantClip>,
         push: &mut dyn FnMut(LayerSurfaceRenderElement<R>),
     ) {
         for (mapped, geo) in self.layers_in_render_order(layer_map, layer, for_backdrop) {
             let loc = geo.loc.to_f64();
             let xray_pos = xray_pos.offset(loc);
-            mapped.render_normal(ctx.r(), ns, loc, xray_pos, push);
+            mapped.render_normal(ctx.r(), ns, loc, xray_pos, slant_clip, push);
         }
     }
 

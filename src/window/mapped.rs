@@ -732,6 +732,7 @@ impl LayoutElement for Mapped {
                 effect,
                 false,
                 xray_pos,
+                None,
                 &mut |elem| push(elem.into()),
             );
         }
@@ -763,6 +764,7 @@ impl LayoutElement for Mapped {
             self.rules.background_effect,
             should_block_out,
             xray_pos,
+            None,
             push,
         );
     }

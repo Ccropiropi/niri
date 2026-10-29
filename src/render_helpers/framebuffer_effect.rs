@@ -14,7 +14,7 @@ use smithay::utils::user_data::UserDataMap;
 use smithay::utils::{Buffer, Logical, Physical, Rectangle, Scale, Transform};
 
 use crate::backend::tty::{TtyFrame, TtyRenderer, TtyRendererError};
-use crate::render_helpers::background_effect::RenderParams;
+use crate::render_helpers::background_effect::{RenderParams, SlantClip, SlantClipSide};
 use crate::render_helpers::blur::{Blur, BlurOptions};
 use crate::render_helpers::renderer::AsGlesFrame as _;
 use crate::render_helpers::shaders::{mat3_uniform, Shaders};
@@ -38,6 +38,7 @@ pub struct FramebufferEffectElement {
     blur_options: Option<BlurOptions>,
     noise: f32,
     saturation: f32,
+    slant_clip: Option<SlantClip>,
 }
 
 #[derive(Debug)]
@@ -89,6 +90,7 @@ impl FramebufferEffect {
             blur_options,
             noise,
             saturation,
+            slant_clip: params.slant_clip,
         }
     }
 }
@@ -98,7 +100,7 @@ impl FramebufferEffectElement {
         &self,
         crop: Rectangle<f64, Logical>,
         transform: Transform,
-    ) -> [Uniform<'static>; 7] {
+    ) -> [Uniform<'static>; 8] {
         let offset = crop.loc - (self.clip_geo.loc - self.geometry.loc);
         let offset = Vec2::new(offset.x as f32, offset.y as f32);
         let crop_size = Vec2::new(crop.size.w as f32, crop.size.h as f32);
@@ -116,6 +118,16 @@ impl FramebufferEffectElement {
 
         let clip_geo_size = (self.clip_geo.size.w as f32, self.clip_geo.size.h as f32);
 
+        let slant_uniform = if let Some(sc) = self.slant_clip {
+            let mode = match sc.side {
+                SlantClipSide::LeftOnly => 1.0f32,
+                SlantClipSide::RightOnly => 2.0f32,
+            };
+            [sc.top_x, sc.slant, sc.height, mode]
+        } else {
+            [0.0f32, 0.0f32, 0.0f32, 0.0f32]
+        };
+
         [
             Uniform::new("niri_scale", self.scale),
             Uniform::new("geo_size", clip_geo_size),
@@ -124,6 +136,7 @@ impl FramebufferEffectElement {
             Uniform::new("noise", self.noise),
             Uniform::new("saturation", self.saturation),
             Uniform::new("bg_color", [0f32, 0., 0., 0.]),
+            Uniform::new("slant_clip", slant_uniform),
         ]
     }
 }

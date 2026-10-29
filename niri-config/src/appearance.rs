@@ -1055,6 +1055,16 @@ impl MergeWith<BlurPart> for Blur {
     }
 }
 
+#[derive(knuffel::DecodeScalar, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RegionClipMode {
+    #[default]
+    None,
+    Inactive,
+    Active,
+    Left,
+    Right,
+}
+
 #[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
 pub struct BackgroundEffectRule {
     #[knuffel(child, unwrap(argument))]
@@ -1065,6 +1075,8 @@ pub struct BackgroundEffectRule {
     pub noise: Option<FloatOrInt<0, 1000>>,
     #[knuffel(child, unwrap(argument))]
     pub saturation: Option<FloatOrInt<0, 1000>>,
+    #[knuffel(child, unwrap(argument))]
+    pub region_clip: Option<RegionClipMode>,
 }
 
 /// Resolved background effect rule.
@@ -1087,11 +1099,12 @@ pub struct BackgroundEffect {
 
     pub noise: Option<f64>,
     pub saturation: Option<f64>,
+    pub region_clip: Option<RegionClipMode>,
 }
 
 impl MergeWith<BackgroundEffectRule> for BackgroundEffect {
     fn merge_with(&mut self, part: &BackgroundEffectRule) {
-        merge_clone_opt!((self, part), xray, blur);
+        merge_clone_opt!((self, part), xray, blur, region_clip);
 
         if let Some(x) = part.noise {
             self.noise = Some(x.0);

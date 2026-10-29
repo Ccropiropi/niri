@@ -119,6 +119,7 @@ impl Shaders {
                     UniformName::new("noise", UniformType::_1f),
                     UniformName::new("saturation", UniformType::_1f),
                     UniformName::new("bg_color", UniformType::_4f),
+                    UniformName::new("slant_clip", UniformType::_4f),
                 ],
             )
             .map_err(|err| {
