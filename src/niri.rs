@@ -4676,7 +4676,9 @@ impl Niri {
                 self.config.borrow().layout.panel_width
             };
             let output_width = mon.view_size().w;
-            macro_rules! process {
+            let regions_enabled = self.config.borrow().regions.enabled;
+
+            macro_rules! process_ws {
                 ($geo:expr) => {{
                     &mut |elem| {
                         if let Some(elem) = scale_relocate_crop(
@@ -4692,31 +4694,57 @@ impl Niri {
                     }
                 }};
             }
+            macro_rules! process_layer_ws {
+                ($geo:expr) => {{
+                    &mut |elem| {
+                        if let Some(elem) = scale_relocate_crop(
+                            elem,
+                            output_scale,
+                            zoom,
+                            $geo,
+                            0.,
+                            output_width,
+                        ) {
+                            push(elem.into());
+                        }
+                    }
+                }};
+            }
 
-            for (ws, geo) in mon.workspaces_with_render_geo() {
-                let ns = Some(ws.id().get() as usize);
-                let xray_pos = XrayPos::new(geo.loc, zoom);
-                push_popups_from_layer!(Layer::Bottom, ns, xray_pos, process!(geo));
-                push_popups_from_layer!(Layer::Background, ns, xray_pos, process!(geo));
+            if regions_enabled {
+                push_popups_from_layer!(Layer::Bottom);
+                for (ws, geo) in mon.workspaces_with_render_geo() {
+                    let ns = Some(ws.id().get() as usize);
+                    let xray_pos = XrayPos::new(geo.loc, zoom);
+                    push_popups_from_layer!(Layer::Background, ns, xray_pos, process_layer_ws!(geo));
+                }
+            } else {
+                for (ws, geo) in mon.workspaces_with_render_geo() {
+                    let ns = Some(ws.id().get() as usize);
+                    let xray_pos = XrayPos::new(geo.loc, zoom);
+                    push_popups_from_layer!(Layer::Bottom, ns, xray_pos, process_layer_ws!(geo));
+                    push_popups_from_layer!(Layer::Background, ns, xray_pos, process_layer_ws!(geo));
+                }
             }
 
             mon.render_workspaces(ctx.r(), focus_ring, &mut |elem| push(elem.into()));
 
-            for (ws, geo) in mon.workspaces_with_render_geo() {
-                // The render element namespace. This will be set to the workspace index for
-                // elements duplicated across workspaces (i.e. background and bottom layers) in
-                // order to have their non-xray framebuffer effects separated from each other.
-                //
-                // This doesn't have to correspond exactly to workspace id or idx, the only
-                // requirement is that there's only one framebuffer effect element with a given id +
-                // namespace on the frame at once. Id + namespace is used as the cache key in the
-                // damage tracker.
-                let ns = Some(ws.id().get() as usize);
-                let xray_pos = XrayPos::new(geo.loc, zoom);
-                push_normal_from_layer!(Layer::Bottom, ns, xray_pos, process!(geo));
-                push_normal_from_layer!(Layer::Background, ns, xray_pos, process!(geo));
-
-                process!(geo)(ws.render_background());
+            if regions_enabled {
+                push_normal_from_layer!(Layer::Bottom);
+                for (ws, geo) in mon.workspaces_with_render_geo() {
+                    let ns = Some(ws.id().get() as usize);
+                    let xray_pos = XrayPos::new(geo.loc, zoom);
+                    push_normal_from_layer!(Layer::Background, ns, xray_pos, process_layer_ws!(geo));
+                    process_ws!(geo)(ws.render_background());
+                }
+            } else {
+                for (ws, geo) in mon.workspaces_with_render_geo() {
+                    let ns = Some(ws.id().get() as usize);
+                    let xray_pos = XrayPos::new(geo.loc, zoom);
+                    push_normal_from_layer!(Layer::Bottom, ns, xray_pos, process_layer_ws!(geo));
+                    push_normal_from_layer!(Layer::Background, ns, xray_pos, process_layer_ws!(geo));
+                    process_ws!(geo)(ws.render_background());
+                }
             }
         }
 
