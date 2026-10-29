@@ -1,3 +1,37 @@
+## [2026-10-29] - Milestone S1: Native Niri QML Telemetry Service (splitdesk)
+
+### Added
+- **`Shell/shell/services/Niri.qml`** (NEW):
+  - Pure QML `Singleton` using `Quickshell.Io.Process` + `SplitParser` streaming `niri msg --json event-stream`.
+  - Maintains reactive properties: `connected`, `regionsEnabled`, `focusedRegion`, `workspaces`, `focusedWorkspaceId`, `activeWindow`, `windowsById`, `activeWindowTitle`.
+  - Action dispatch helpers: `toggleSplitMode()`, `focusRegionLeft()`, `focusRegionRight()`, `toggleRegionFocus()`, `moveWindowToRegionLeft()`, `moveWindowToRegionRight()`, `focusWorkspace(id)`.
+  - Fault-tolerant 1s reconnect timer on process exit.
+  - No C++/Hyprland dependencies.
+- **`Shell/shell/services/Theme.qml`** (NEW):
+  - Token singleton: color palette (`ink`, `teal`, `amber`, `text`, `dim`, `edge`, `veil`), geometry (`w`, `s`, `topOffset`, `margin`, `gap`), radii.
+- **`Shell/shell/modules/island/Island.qml`** (NEW):
+  - Top `PanelWindow` pill: `WlrLayer.Top`, namespace `splitdesk-island`, `ExclusionMode.Ignore`.
+  - Contains `WorkspacePips`, `ActiveTitle`, clock, and expand toggle.
+  - Drives `IslandDrawer` open/close with animated height.
+- **`Shell/shell/modules/island/WorkspacePips.qml`** (NEW):
+  - Repeater over `Niri.workspaces`; active pip → 22×8px amber pill; inactive → 8×8px circle.
+  - Click calls `Niri.focusWorkspace(id)`.
+- **`Shell/shell/modules/island/ActiveTitle.qml`** (NEW):
+  - Reactive title: "Widgets & Dashboard" when `Niri.focusedRegion === "Left"`, else `activeWindow?.title ?? "Desktop"`.
+- **`Shell/shell/modules/island/IslandDrawer.qml`** (NEW):
+  - Accordion expansion card with lazy height animation; placeholder media row + quick toggle row.
+- **`Shell/shell/test_niri_event_parser.py`** (NEW):
+  - Standalone Python mock test: replays 10 JSON events through Python port of `_handleEvent` logic; 9 assertions all PASS (exit 0).
+
+### Modified
+- **`Shell/shell/modules/ServiceLoader.qml`**: Added `Niri;` eager singleton load with descriptive comment; moved before VPN conditional.
+
+### Decoupling
+- `services/Niri.qml` replaces `services/Hypr.qml` for splitdesk compositor telemetry with zero C++ build requirements.
+- `CMakeLists.txt` unchanged — no C++ plugin needed for QML-only Niri integration.
+
+---
+
 ## [2026-10-28] - Milestone R5: IPC & Shell Telemetry (splitdesk)
 
 ### Added
